@@ -1,0 +1,12 @@
+# Temporal anomaly model. Match indices refer to data/annotations/match_XXXX.json.
+window: 32                   # seconds (bins) per window; divisible by 4
+stride: 4                    # test/serving stride
+train_stride: 2
+train_matches: [0, 60]       # trained only on windows that overlap no annotated anomaly
+calib_matches: [60, 70]      # threshold = quantile of scores on their normal windows
+test_matches: [70, 100]      # held out
+threshold_quantile: 0.99
+epochs: 40
+batch_size: 64
+lr: 0.001
+seed: 0
