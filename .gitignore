@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+models/
+data/raw/*
+!data/raw/.gitkeep
+data/events/
+detection/results.json
+temporal/results.json
+graphify-out/
+.ipynb_checkpoints/
