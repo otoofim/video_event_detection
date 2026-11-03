@@ -1,7 +1,8 @@
 """Train the frame classifier and evaluate it (frame- and event-level).
 
-    python -m detection.train --config detection/configs/default.yaml --out models/detector.pt
+python -m detection.train --config detection/configs/default.yaml --out models/detector.pt
 """
+
 from __future__ import annotations
 
 import argparse
@@ -21,8 +22,9 @@ from detection.metrics import confusion_matrix, event_prf, per_class_prf
 from detection.model import EventNet
 
 
-def load_split(lo: int, hi: int, size, keep_bg: float, rng: np.random.Generator,
-               raw: Path, ann_dir: Path) -> tuple[np.ndarray, np.ndarray]:
+def load_split(
+    lo: int, hi: int, size, keep_bg: float, rng: np.random.Generator, raw: Path, ann_dir: Path
+) -> tuple[np.ndarray, np.ndarray]:
     xs, ys = [], []
     for i in range(lo, hi):
         ann = Annotation.model_validate_json((ann_dir / f"match_{i:04d}.json").read_text())
@@ -49,21 +51,26 @@ def main() -> None:
     rng = np.random.default_rng(cfg["seed"])
     size = tuple(cfg["input_size"])
 
-    x, y = load_split(*cfg["train_matches"], size, cfg["background_keep"], rng, a.raw, a.annotations)
+    x, y = load_split(
+        *cfg["train_matches"], size, cfg["background_keep"], rng, a.raw, a.annotations
+    )
     print(f"train frames: {len(y)}  per class: {np.bincount(y, minlength=len(CLASSES)).tolist()}")
     model = EventNet(width=cfg["width"])
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
     sched = torch.optim.lr_scheduler.OneCycleLR(
-        opt, max_lr=cfg["lr"], total_steps=cfg["epochs"] * int(np.ceil(len(y) / cfg["batch_size"])))
+        opt, max_lr=cfg["lr"], total_steps=cfg["epochs"] * int(np.ceil(len(y) / cfg["batch_size"]))
+    )
     counts = np.bincount(y, minlength=len(CLASSES)).clip(min=1)
-    loss_fn = nn.CrossEntropyLoss(weight=torch.tensor(len(y) / (len(counts) * counts), dtype=torch.float32))
+    loss_fn = nn.CrossEntropyLoss(
+        weight=torch.tensor(len(y) / (len(counts) * counts), dtype=torch.float32)
+    )
     xt, yt = torch.from_numpy(x), torch.from_numpy(y)
     for epoch in range(cfg["epochs"]):
         model.train()
         perm = torch.randperm(len(yt))
         total = 0.0
         for k in range(0, len(perm), cfg["batch_size"]):
-            idx = perm[k:k + cfg["batch_size"]]
+            idx = perm[k : k + cfg["batch_size"]]
             opt.zero_grad()
             loss = loss_fn(model(xt[idx]), yt[idx])
             loss.backward()
@@ -73,8 +80,15 @@ def main() -> None:
         print(f"epoch {epoch + 1}/{cfg['epochs']}  loss {total / len(perm):.4f}")
 
     a.out.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"state_dict": model.state_dict(), "width": cfg["width"], "size": list(size),
-                "classes": CLASSES}, a.out)
+    torch.save(
+        {
+            "state_dict": model.state_dict(),
+            "width": cfg["width"],
+            "size": list(size),
+            "classes": CLASSES,
+        },
+        a.out,
+    )
 
     # Evaluation on held-out matches: full videos through the real inference path, one pass.
     det = Detector(a.out)
@@ -92,10 +106,16 @@ def main() -> None:
                 p[k] += m[k]
     for p in pooled.values():
         prec, rec = p["tp"] / max(p["n_pred"], 1), p["tp"] / max(p["n_gt"], 1)
-        p.update(precision=prec, recall=rec, f1=2 * prec * rec / (prec + rec) if prec + rec else 0.0)
+        p.update(
+            precision=prec, recall=rec, f1=2 * prec * rec / (prec + rec) if prec + rec else 0.0
+        )
     cm = confusion_matrix(np.concatenate(all_true), np.concatenate(all_pred))
-    report = {"confusion_matrix": cm.tolist(), "classes": CLASSES, "frame": per_class_prf(cm),
-              "event": pooled}
+    report = {
+        "confusion_matrix": cm.tolist(),
+        "classes": CLASSES,
+        "frame": per_class_prf(cm),
+        "event": pooled,
+    }
     a.report.parent.mkdir(parents=True, exist_ok=True)
     a.report.write_text(json.dumps(report, indent=1))
     print(json.dumps(pooled, indent=1))

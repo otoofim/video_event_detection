@@ -6,6 +6,7 @@ round start / round end, and distractor HUD elements. Matches are written as mp4
 annotation. A fraction of matches get injected irregular play (kill bursts and kill droughts),
 which is what the temporal model has to find.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -44,13 +45,19 @@ def simulate_match(seed: int, anomalous: bool = False, n_rounds: int = 4) -> Mat
         t += BANNER_SECONDS["round_start"] + 0.5
         if r in bad_rounds and rng.random() < 0.5:
             kind, length = "drought", float(rng.uniform(45, 60))
-            anomalies.append(Anomaly(start=round(t, 2), end=round(t + length, 2), score=1.0, kind=kind))
+            anomalies.append(
+                Anomaly(start=round(t, 2), end=round(t + length, 2), score=1.0, kind=kind)
+            )
         elif r in bad_rounds:
             length = float(rng.uniform(22, 30))
             n = int(rng.integers(6, 9))
             b0 = t + float(rng.uniform(3, 8))
             times = [b0 + i * float(rng.uniform(0.8, 1.1)) for i in range(n)]
-            anomalies.append(Anomaly(start=round(times[0], 2), end=round(times[-1] + 1, 2), score=1.0, kind="burst"))
+            anomalies.append(
+                Anomaly(
+                    start=round(times[0], 2), end=round(times[-1] + 1, 2), score=1.0, kind="burst"
+                )
+            )
             for ts in times:
                 events.append(_kill(ts, rng))
         else:
@@ -121,23 +128,45 @@ class _Renderer:
         cv2.rectangle(img, (6, 5), (6 + int(rng.integers(4, 12)), 12), TEAM_COLORS["red"], -1)
         cv2.rectangle(img, (26, 5), (26 + int(rng.integers(4, 12)), 12), TEAM_COLORS["blue"], -1)
         for k in range(3):
-            c = list(TEAM_COLORS.values())[int(rng.integers(0, 2))] if rng.random() < 0.5 else (90, 90, 90)
+            c = (
+                list(TEAM_COLORS.values())[int(rng.integers(0, 2))]
+                if rng.random() < 0.5
+                else (90, 90, 90)
+            )
             cv2.rectangle(img, (3, 70 + k * 7), (3 + int(rng.integers(12, 30)), 74 + k * 7), c, -1)
         e = self.active.get(i)
         if e is not None:
             jx, jy = (int(v) for v in rng.integers(-1, 2, size=2))
             if e.event_type == "kill":
                 x1, y1, x2, y2 = KILL_BOX
-                cv2.rectangle(img, (x1 + jx, y1 + jy), (x2 + jx, y2 + jy), TEAM_COLORS[e.team or "red"], -1)
-                cv2.rectangle(img, (x1 + 3 + jx, y1 + 3 + jy), (x1 + 20 + jx, y2 - 3 + jy), (240, 240, 240), -1)
-                cv2.rectangle(img, (x2 - 20 + jx, y1 + 3 + jy), (x2 - 4 + jx, y2 - 3 + jy), (240, 240, 240), -1)
+                cv2.rectangle(
+                    img, (x1 + jx, y1 + jy), (x2 + jx, y2 + jy), TEAM_COLORS[e.team or "red"], -1
+                )
+                cv2.rectangle(
+                    img,
+                    (x1 + 3 + jx, y1 + 3 + jy),
+                    (x1 + 20 + jx, y2 - 3 + jy),
+                    (240, 240, 240),
+                    -1,
+                )
+                cv2.rectangle(
+                    img,
+                    (x2 - 20 + jx, y1 + 3 + jy),
+                    (x2 - 4 + jx, y2 - 3 + jy),
+                    (240, 240, 240),
+                    -1,
+                )
             else:
                 x1, y1, x2, y2 = CENTER_BOX
-                cv2.rectangle(img, (x1 + jx, y1 + jy), (x2 + jx, y2 + jy), BANNER_COLORS[e.event_type], -1)
+                cv2.rectangle(
+                    img, (x1 + jx, y1 + jy), (x2 + jx, y2 + jy), BANNER_COLORS[e.event_type], -1
+                )
                 n = 3 if e.event_type == "round_start" else 5
                 for k in range(n):
                     cx = x1 + 10 + k * (80 // n)
-                    cv2.rectangle(img, (cx + jx, y1 + 5 + jy), (cx + 6 + jx, y2 - 5 + jy), (245, 245, 245), -1)
+                    cv2.rectangle(
+                        img, (cx + jx, y1 + 5 + jy), (cx + 6 + jx, y2 - 5 + jy), (245, 245, 245), -1
+                    )
         img = img.astype(np.float32) * float(rng.uniform(0.9, 1.1)) + rng.normal(0, 4, img.shape)
         return np.clip(img, 0, 255).astype(np.uint8)
 
@@ -152,6 +181,11 @@ def render_match(match: Match, out_path: Path, seed: int) -> Annotation:
         writer.write(cv2.cvtColor(r.frame(i), cv2.COLOR_RGB2BGR))
     writer.release()
     return Annotation(
-        video=out_path.name, fps=FPS, duration=r.n_frames / FPS, width=W, height=H,
-        events=match.events, anomalies=match.anomalies,
+        video=out_path.name,
+        fps=FPS,
+        duration=r.n_frames / FPS,
+        width=W,
+        height=H,
+        events=match.events,
+        anomalies=match.anomalies,
     )

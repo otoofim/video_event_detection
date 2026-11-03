@@ -3,6 +3,7 @@
 numpy only (no torch) so the serving image can use it. ``StreamFeaturizer`` is the single source
 of truth: training builds windows with it offline, the live pipeline feeds it event by event.
 """
+
 from __future__ import annotations
 
 import json
@@ -74,11 +75,16 @@ def make_windows(bins: np.ndarray, window: int, stride: int) -> tuple[np.ndarray
     starts = np.arange(0, max(len(bins) - window, -1) + 1, stride)
     if len(starts) == 0:
         return np.zeros((0, window, bins.shape[1]), dtype=np.float32), starts
-    return np.stack([bins[s:s + window] for s in starts]), starts
+    return np.stack([bins[s : s + window] for s in starts]), starts
 
 
-def window_labels(starts: np.ndarray, window: int, anomalies: list[Anomaly],
-                  bin_s: float = 1.0, min_overlap_s: float = 2.0) -> np.ndarray:
+def window_labels(
+    starts: np.ndarray,
+    window: int,
+    anomalies: list[Anomaly],
+    bin_s: float = 1.0,
+    min_overlap_s: float = 2.0,
+) -> np.ndarray:
     """1 where a window overlaps an annotated anomaly by at least ``min_overlap_s`` seconds."""
     y = np.zeros(len(starts), dtype=np.int64)
     for i, s in enumerate(starts):
@@ -93,7 +99,9 @@ def load_events(path: str | Path) -> list[Event]:
     return [Event(**d) for d in json.loads(Path(path).read_text())]
 
 
-def load_match(i: int, annotations: Path, events_dir: Path | None) -> tuple[list[Event], Annotation]:
+def load_match(
+    i: int, annotations: Path, events_dir: Path | None
+) -> tuple[list[Event], Annotation]:
     """Events for match ``i``: detector output from ``events_dir``, else the ground truth."""
     ann = Annotation.model_validate_json((annotations / f"match_{i:04d}.json").read_text())
     if events_dir is None:

@@ -3,6 +3,7 @@
 Usage: python -m data.scripts.generate_synthetic --n 40 --anomalous-frac 0.3
 Matches 0..n-1 are deterministic in their index, so any subset is reproducible.
 """
+
 from __future__ import annotations
 
 import argparse

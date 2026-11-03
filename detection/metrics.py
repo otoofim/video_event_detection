@@ -1,4 +1,5 @@
 """Frame- and event-level metrics (numpy only)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -12,14 +13,17 @@ def confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray, n: int = len(CLASSE
     return cm
 
 
-def per_class_prf(cm: np.ndarray) -> dict[str, dict[str, float]]:
+def per_class_prf(cm: np.ndarray, classes: list[str] = CLASSES) -> dict[str, dict[str, float]]:
     out = {}
-    for i, name in enumerate(CLASSES):
+    for i, name in enumerate(classes):
         tp = cm[i, i]
         p = tp / max(cm[:, i].sum(), 1)
         r = tp / max(cm[i, :].sum(), 1)
-        out[name] = {"precision": float(p), "recall": float(r),
-                     "f1": float(2 * p * r / (p + r)) if p + r else 0.0}
+        out[name] = {
+            "precision": float(p),
+            "recall": float(r),
+            "f1": float(2 * p * r / (p + r)) if p + r else 0.0,
+        }
     return out
 
 
@@ -42,6 +46,12 @@ def event_prf(pred: list[Event], gt: list[Event], tol: float = 0.5) -> dict[str,
                 tp += 1
         prec = tp / max(len(p), 1)
         rec = tp / max(len(g), 1)
-        res[etype] = {"tp": tp, "n_pred": len(p), "n_gt": len(g), "precision": prec, "recall": rec,
-                      "f1": 2 * prec * rec / (prec + rec) if prec + rec else 0.0}
+        res[etype] = {
+            "tp": tp,
+            "n_pred": len(p),
+            "n_gt": len(g),
+            "precision": prec,
+            "recall": rec,
+            "f1": 2 * prec * rec / (prec + rec) if prec + rec else 0.0,
+        }
     return res

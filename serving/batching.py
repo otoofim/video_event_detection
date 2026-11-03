@@ -1,4 +1,5 @@
 """Async micro-batcher: coalesce concurrent single-item requests into one model call."""
+
 from __future__ import annotations
 
 import asyncio
@@ -14,8 +15,9 @@ class MicroBatcher:
     the event loop keeps accepting frames while ONNX Runtime (which releases the GIL) computes.
     """
 
-    def __init__(self, fn: Callable[[np.ndarray], np.ndarray], max_batch: int = 16,
-                 max_wait_ms: float = 3.0):
+    def __init__(
+        self, fn: Callable[[np.ndarray], np.ndarray], max_batch: int = 16, max_wait_ms: float = 3.0
+    ):
         self.fn, self.max_batch, self.max_wait = fn, max_batch, max_wait_ms / 1000
         self._q: asyncio.Queue | None = None
         self._task: asyncio.Task | None = None

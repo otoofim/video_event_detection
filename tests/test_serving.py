@@ -75,3 +75,24 @@ def test_microbatcher_coalesces_concurrent_requests():
     outs, sizes = asyncio.run(run())
     assert [o[0] for o in outs] == [2 * i for i in range(8)]
     assert max(sizes) > 1
+
+
+def _npy(arr):
+    import io
+
+    buf = io.BytesIO()
+    np.save(buf, arr)
+    return buf.getvalue()
+
+
+def test_detect_features(client):
+    feats = np.random.default_rng(0).standard_normal((40, 16)).astype(np.float32)
+    r = client.post("/detect_features?duration=12.0", files={"file": ("f.npy", _npy(feats))})
+    assert r.status_code == 200
+    assert all(e["event_type"] in {"kill", "objective", "teamfight"} for e in r.json()["events"])
+
+
+def test_detect_features_validates_shape(client):
+    bad = np.zeros((10, 3), dtype=np.float32)
+    assert client.post("/detect_features", files={"file": ("f.npy", _npy(bad))}).status_code == 400
+    assert client.post("/detect_features", files={"file": ("f.npy", b"junk")}).status_code == 400

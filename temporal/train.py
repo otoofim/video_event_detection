@@ -1,8 +1,9 @@
 """Train the window autoencoder on normal play and evaluate irregular-play flagging on held-out matches.
 
-    python -m temporal.train --events-dir data/events        # on detector output (default pipeline)
-    python -m temporal.train --use-gt                        # on ground-truth events
+python -m temporal.train --events-dir data/events        # on detector output (default pipeline)
+python -m temporal.train --use-gt                        # on ground-truth events
 """
+
 from __future__ import annotations
 
 import argparse
@@ -51,7 +52,7 @@ def auroc(y: np.ndarray, s: np.ndarray) -> float:
         j = i
         while j + 1 < len(allv) and allv[j + 1] == allv[i]:
             j += 1
-        ranks[i:j + 1] = (i + j) / 2 + 1
+        ranks[i : j + 1] = (i + j) / 2 + 1
         i = j + 1
     r_pos = ranks[np.argsort(order)][: len(pos)].sum()
     return float((r_pos - len(pos) * (len(pos) + 1) / 2) / (len(pos) * len(neg)))
@@ -79,7 +80,9 @@ def main() -> None:
 
     x, y, _, _ = build(*cfg["train_matches"], cfg, cfg["train_stride"], a.annotations, ev_dir)
     xn = torch.from_numpy(x[y == 0]).transpose(1, 2).contiguous()
-    print(f"training on {len(xn)} normal windows ({int((y == 1).sum())} anomalous windows excluded)")
+    print(
+        f"training on {len(xn)} normal windows ({int((y == 1).sum())} anomalous windows excluded)"
+    )
     model = ConvAE()
     opt = torch.optim.Adam(model.parameters(), lr=cfg["lr"])
     for epoch in range(cfg["epochs"]):
@@ -87,7 +90,7 @@ def main() -> None:
         perm = torch.randperm(len(xn))
         total = 0.0
         for k in range(0, len(perm), cfg["batch_size"]):
-            b = xn[perm[k:k + cfg["batch_size"]]]
+            b = xn[perm[k : k + cfg["batch_size"]]]
             opt.zero_grad()
             loss = ((model(b) - b) ** 2).mean()
             loss.backward()
@@ -102,7 +105,11 @@ def main() -> None:
     xt, yt, mt, st = build(*cfg["test_matches"], cfg, cfg["stride"], a.annotations, ev_dir)
     s = scores_of(model, xt)
     flag = s > threshold
-    tp, fp, fn = int((flag & (yt == 1)).sum()), int((flag & (yt == 0)).sum()), int((~flag & (yt == 1)).sum())
+    tp, fp, fn = (
+        int((flag & (yt == 1)).sum()),
+        int((flag & (yt == 0)).sum()),
+        int((~flag & (yt == 1)).sum()),
+    )
     prec, rec = tp / max(tp + fp, 1), tp / max(tp + fn, 1)
 
     # Interval-level recall: an annotated anomaly counts as found if any overlapping window is flagged.
@@ -118,14 +125,23 @@ def main() -> None:
         "threshold": threshold,
         "window_auroc": auroc(yt, s),
         "baseline_kill_burst_auroc": auroc(yt, kill_burst_baseline(xt)),
-        "window_precision": prec, "window_recall": rec,
+        "window_precision": prec,
+        "window_recall": rec,
         "window_f1": 2 * prec * rec / (prec + rec) if prec + rec else 0.0,
         "anomaly_interval_recall": {k: found[k] / total[k] for k in total},
-        "n_test_windows": len(yt), "n_anomalous_windows": int(yt.sum()),
+        "n_test_windows": len(yt),
+        "n_anomalous_windows": int(yt.sum()),
     }
     a.out.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"state_dict": model.state_dict(), "window": cfg["window"], "stride": cfg["stride"],
-                "threshold": threshold}, a.out)
+    torch.save(
+        {
+            "state_dict": model.state_dict(),
+            "window": cfg["window"],
+            "stride": cfg["stride"],
+            "threshold": threshold,
+        },
+        a.out,
+    )
     a.report.write_text(json.dumps(report, indent=1))
     print(json.dumps(report, indent=1))
 

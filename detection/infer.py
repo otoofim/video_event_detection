@@ -1,8 +1,9 @@
 """Run the detector over a video (or directory of videos) and emit the event stream as JSON.
 
-    python -m detection.infer --video data/raw/match_0000.mp4 --weights models/detector.pt
-    python -m detection.infer --video-dir data/raw --weights models/detector.onnx --out-dir data/events
+python -m detection.infer --video data/raw/match_0000.mp4 --weights models/detector.pt
+python -m detection.infer --video-dir data/raw --weights models/detector.onnx --out-dir data/events
 """
+
 from __future__ import annotations
 
 import argparse
@@ -54,8 +55,9 @@ class Detector:
         return e / e.sum(axis=1, keepdims=True)
 
 
-def detect_video(path: str | Path, det: Detector, min_run: int = 2, min_conf: float = 0.5,
-                 batch_size: int = 32) -> tuple[list[Event], np.ndarray]:
+def detect_video(
+    path: str | Path, det: Detector, min_run: int = 2, min_conf: float = 0.5, batch_size: int = 32
+) -> tuple[list[Event], np.ndarray]:
     """Return the event stream and per-frame argmax predictions for a video."""
     agg = EventAggregator(min_run, min_conf)
     events: list[Event] = []

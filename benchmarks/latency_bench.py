@@ -10,6 +10,7 @@
 
 Writes ``benchmarks/results/<mode>.json`` and ``<mode>.md`` (p50/p95/p99, frames/s).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -21,25 +22,40 @@ from pathlib import Path
 
 import numpy as np
 
-from common.video import iter_frames, preprocess
+from common.video import iter_frames
 
 RESULTS = Path("benchmarks/results")
 
 
 def pct(samples_ms: list[float]) -> dict[str, float]:
     a = np.asarray(samples_ms)
-    return {"p50": float(np.percentile(a, 50)), "p95": float(np.percentile(a, 95)),
-            "p99": float(np.percentile(a, 99)), "mean": float(a.mean())}
+    return {
+        "p50": float(np.percentile(a, 50)),
+        "p95": float(np.percentile(a, 95)),
+        "p99": float(np.percentile(a, 99)),
+        "mean": float(a.mean()),
+    }
 
 
 def _write(name: str, rows: list[dict], cols: list[str]) -> None:
     RESULTS.mkdir(parents=True, exist_ok=True)
-    (RESULTS / f"{name}.json").write_text(json.dumps(
-        {"host": platform.processor() or platform.machine(), "python": platform.python_version(),
-         "rows": rows}, indent=1))
+    (RESULTS / f"{name}.json").write_text(
+        json.dumps(
+            {
+                "host": platform.processor() or platform.machine(),
+                "python": platform.python_version(),
+                "rows": rows,
+            },
+            indent=1,
+        )
+    )
     lines = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
     for r in rows:
-        lines.append("| " + " | ".join(f"{r[c]:.2f}" if isinstance(r[c], float) else str(r[c]) for c in cols) + " |")
+        lines.append(
+            "| "
+            + " | ".join(f"{r[c]:.2f}" if isinstance(r[c], float) else str(r[c]) for c in cols)
+            + " |"
+        )
     (RESULTS / f"{name}.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
 
@@ -66,7 +82,9 @@ def bench_model(a: argparse.Namespace) -> None:
                 det.probs(x)
                 ts.append((time.perf_counter() - t0) * 1000)
             p = pct(ts)
-            rows.append({"backend": name, "batch": bs, **p, "frames_per_s": bs / (p["mean"] / 1000)})
+            rows.append(
+                {"backend": name, "batch": bs, **p, "frames_per_s": bs / (p["mean"] / 1000)}
+            )
     _write("model", rows, ["backend", "batch", "p50", "p95", "p99", "frames_per_s"])
 
 
@@ -76,6 +94,7 @@ async def _http_load(url: str, jpeg: bytes, concurrency: int, n: int) -> dict:
     lat: list[float] = []
     sem = asyncio.Semaphore(concurrency)
     async with httpx.AsyncClient(base_url=url, timeout=30) as client:
+
         async def one() -> None:
             async with sem:
                 t0 = time.perf_counter()

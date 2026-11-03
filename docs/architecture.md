@@ -64,7 +64,33 @@ the model; it cannot see droughts, which is the point of learning the baseline i
 `StreamFeaturizer` is shared by training and serving, with a 0.5 s lag live so that events the
 detector emits a few frames late still land in the right bin.
 
-## Data split (match indices from `make data`)
+## ADR-6: LoL-V2T for the real-footage detector (weak labels, features only)
+
+*Context.* [LoL-V2T](https://tsunehiko.github.io/lol-v2t/) (Tanaka and Simo-Serra, CVPRW 2021) is
+the real dataset used here: 9,723 League of Legends Worlds clips (76 h), 62,677 timestamped
+commentary sentences, split 6,977 / 851 / 1,895 clips. It is a *video captioning* dataset: it has
+no event labels, and it ships precomputed per-clip RGB and optical-flow features
+(`<clip>_rgb.pkl`, `<clip>_flow.pkl`, 2048-d per step) instead of raw video, which Riot's policy
+keeps unpublished. No licence is stated on the page.
+
+*Decision.* (1) Derive weak events from the commentary by keyword rules (`common/lolv2t.py`):
+`kill`, `objective` (baron, dragon, herald, tower, inhibitor, nexus) and `teamfight`, stamped at the
+start of the sentence's segment and spread over 3 s of feature steps as step labels. (2) Train
+`FeatureEventNet` (`detection/seq_model.py`), a dilated 1D-conv net, to classify each feature step,
+then reuse `EventAggregator` to turn step runs into events. (3) Load the third-party pickles with a
+restricted unpickler that only allows numpy array reconstruction. (4) Serve it at
+`POST /detect_features`, which takes a `.npy` of clip features.
+
+*Consequences.* Real broadcast footage, but: labels are noisy (commentary lags the action, ASR text
+is imperfect, keywords miss events and over-trigger on talk about events), so event precision and
+recall measure agreement with the commentary, not with the game, and are not comparable to the
+synthetic-data numbers. Because only features are available, the pixel CNN cannot train on it and
+the service cannot ingest raw LoL video without a feature extractor. The step-to-time mapping
+assumes steps are uniform over the clip duration, which is checked only by the step counts being
+plausible (a 23.6 s clip has 109 steps). LoL-V2T has no irregular-play labels, so the temporal
+anomaly model stays on synthetic event streams.
+
+## Data split (synthetic matches from `make data`)
 
 | Use | Matches |
 |---|---|
@@ -78,7 +104,8 @@ Matches 70-99 are never seen by either model's training.
 
 ## Limitations
 
-- Synthetic data; see ADR-1.
+- Synthetic data for the pixel detector and the temporal model; see ADR-1.
+- LoL-V2T events are weak labels derived from commentary; see ADR-6.
 - The kill-team and `bbox` fields come from a fixed HUD template, not a learned localiser.
 - Anomaly types are the two injected ones; the model flags anything unlike normal windows, but only
   those two are measured.

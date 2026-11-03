@@ -12,3 +12,5 @@ detection/results.json
 temporal/results.json
 graphify-out/
 .ipynb_checkpoints/
+data/lolv2t/
+detection/results_lolv2t.json

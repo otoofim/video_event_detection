@@ -1,4 +1,5 @@
 """Video ingestion: decoding, resizing and tensor preprocessing."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator

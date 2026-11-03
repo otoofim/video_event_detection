@@ -1,4 +1,5 @@
 """1D-CNN autoencoder over windows of event features; reconstruction error = irregularity score."""
+
 from __future__ import annotations
 
 import torch
@@ -13,13 +14,17 @@ class ConvAE(nn.Module):
     def __init__(self, in_ch: int = N_FEATURES, latent: int = 8):
         super().__init__()
         self.enc = nn.Sequential(
-            nn.Conv1d(in_ch, 16, 5, stride=2, padding=2), nn.ReLU(),
-            nn.Conv1d(16, 32, 5, stride=2, padding=2), nn.ReLU(),
+            nn.Conv1d(in_ch, 16, 5, stride=2, padding=2),
+            nn.ReLU(),
+            nn.Conv1d(16, 32, 5, stride=2, padding=2),
+            nn.ReLU(),
             nn.Conv1d(32, latent, 3, padding=1),
         )
         self.dec = nn.Sequential(
-            nn.Conv1d(latent, 32, 3, padding=1), nn.ReLU(),
-            nn.ConvTranspose1d(32, 16, 4, stride=2, padding=1), nn.ReLU(),
+            nn.Conv1d(latent, 32, 3, padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose1d(32, 16, 4, stride=2, padding=1),
+            nn.ReLU(),
             nn.ConvTranspose1d(16, in_ch, 4, stride=2, padding=1),
         )
 

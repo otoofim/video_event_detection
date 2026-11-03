@@ -2,6 +2,7 @@
 
 Only needs onnxruntime + numpy + opencv (no torch), so the service image stays small.
 """
+
 from __future__ import annotations
 
 import json
@@ -31,6 +32,7 @@ class Models:
         self.meta = json.loads((d / "meta.json").read_text())
         self.det = _session(d / "detector.onnx")
         self.tmp = _session(d / "temporal.onnx")
+        self.lol = _session(d / "lolv2t.onnx") if "lolv2t" in self.meta else None
         self.size = tuple(self.meta["detector"]["size"])
         self.window = self.meta["temporal"]["window"]
         self.stride = self.meta["temporal"]["stride"]
@@ -45,6 +47,21 @@ class Models:
         """``(N, T, F)`` windows -> ``(N,)`` irregularity scores."""
         x = np.ascontiguousarray(windows.transpose(0, 2, 1), dtype=np.float32)
         return self.tmp.run(None, {"windows": x})[0]
+
+    def detect_features(self, feats: np.ndarray, duration: float) -> list[Event]:
+        """Events from one clip's precomputed ``(T, D)`` features (LoL-V2T detector)."""
+        from common.lolv2t import step_times
+
+        cfg = self.meta["lolv2t"]
+        logits = self.lol.run(None, {"features": feats[None].astype(np.float32)})[0][0]  # (T, C)
+        e = np.exp(logits - logits.max(axis=1, keepdims=True))
+        probs = e / e.sum(axis=1, keepdims=True)
+        agg = EventAggregator(**cfg["aggregator"], classes=cfg["classes"], hud=False)
+        return [
+            ev
+            for t, p in zip(step_times(len(feats), duration), probs, strict=True)
+            for ev in agg.update(float(t), p)
+        ]
 
     def preprocess(self, rgb: np.ndarray) -> np.ndarray:
         return preprocess(rgb, self.size)
@@ -84,9 +101,14 @@ class StreamSession:
                 out.append((self.n_bins - self.m.window, float(self.n_bins), np.stack(self.bins)))
         return out
 
-    def flags(self, windows: list[tuple[float, float, np.ndarray]], scores: np.ndarray) -> list[Anomaly]:
-        return [Anomaly(start=s, end=e, score=float(sc))
-                for (s, e, _), sc in zip(windows, scores, strict=True) if sc > self.m.threshold]
+    def flags(
+        self, windows: list[tuple[float, float, np.ndarray]], scores: np.ndarray
+    ) -> list[Anomaly]:
+        return [
+            Anomaly(start=s, end=e, score=float(sc))
+            for (s, e, _), sc in zip(windows, scores, strict=True)
+            if sc > self.m.threshold
+        ]
 
 
 def analyze_events(models: Models, events: list[Event], duration: float) -> list[Anomaly]:
@@ -96,6 +118,8 @@ def analyze_events(models: Models, events: list[Event], duration: float) -> list
     if len(w) == 0:
         return []
     scores = models.score_windows(w)
-    return [Anomaly(start=float(s), end=float(s + models.window), score=float(sc))
-            for s, sc in zip(starts, scores, strict=True) if sc > models.threshold]
-
+    return [
+        Anomaly(start=float(s), end=float(s + models.window), score=float(sc))
+        for s, sc in zip(starts, scores, strict=True)
+        if sc > models.threshold
+    ]

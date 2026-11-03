@@ -1,4 +1,5 @@
 """Frame-level event classifier: a small CNN that runs comfortably on CPU."""
+
 from __future__ import annotations
 
 import torch
@@ -25,12 +26,17 @@ class EventNet(nn.Module):
     def __init__(self, num_classes: int = len(CLASSES), width: int = 16):
         super().__init__()
         self.features = nn.Sequential(
-            _block(3, width), _block(width, width * 2), _block(width * 2, width * 4),
+            _block(3, width),
+            _block(width, width * 2),
+            _block(width * 2, width * 4),
             _block(width * 4, width * 4),
         )
         self.pool = nn.AdaptiveAvgPool2d((3, 5))
         self.head = nn.Sequential(
-            nn.Flatten(), nn.Dropout(0.2), nn.Linear(width * 4 * 15, 64), nn.ReLU(inplace=True),
+            nn.Flatten(),
+            nn.Dropout(0.2),
+            nn.Linear(width * 4 * 15, 64),
+            nn.ReLU(inplace=True),
             nn.Linear(64, num_classes),
         )
 
