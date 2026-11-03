@@ -1,4 +1,4 @@
-# esports-event-detection
+# video_event_detection
 
 Real-time in-game event detection, low-latency model serving, and temporal analysis that flags
 irregular play, in one pipeline: **video -> events -> irregular-play flags**.
@@ -44,8 +44,8 @@ make test
 Docker (inference only, no PyTorch):
 
 ```bash
-docker build -f serving/Dockerfile -t esports-serving .
-docker run -p 8000:8000 -v $PWD/models:/app/models esports-serving
+docker build -f serving/Dockerfile -t video-event-serving .
+docker run -p 8000:8000 -v $PWD/models:/app/models video-event-serving
 ```
 
 Stream a clip to the service: open `ws://localhost:8000/stream?fps=10`, send each frame as a

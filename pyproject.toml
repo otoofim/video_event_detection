@@ -1,5 +1,5 @@
 [project]
-name = "esports-event-detection"
+name = "video_event_detection"
 version = "0.1.0"
 description = "Real-time eSports event detection, low-latency serving and temporal anomaly analysis"
 readme = "README.md"

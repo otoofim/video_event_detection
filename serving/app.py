@@ -40,7 +40,7 @@ def create_app(model_dir: str | None = None, max_batch: int = 16, max_wait_ms: f
         await app.state.det_batcher.stop()
         await app.state.tmp_batcher.stop()
 
-    app = FastAPI(title="esports-event-detection", lifespan=lifespan)
+    app = FastAPI(title="video_event_detection", lifespan=lifespan)
 
     @app.get("/health")
     def health():
