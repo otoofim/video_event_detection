@@ -1,7 +1,9 @@
 # Plan: reproducible feature extraction and a variational U-Net detector
 
-Status: proposal, nothing implemented yet. Supersedes the two-model design (detector + temporal
-`PhaseNet`) described in `architecture.md`.
+Status: implemented in code (Steps 0-5); nothing trained, and the extractor's acceptance check
+has not been run. Step 0's findings are in `feature_extraction.md` and corrected the diagram
+below (13-frame step, ActivityNet checkpoints, scene chunking). Supersedes the earlier two-model
+design (detector + temporal `PhaseNet`).
 
 ## Goals
 
@@ -29,10 +31,11 @@ flowchart TB
     CAP[LoL-V2T captions] -->|keyword rules| LB[(Weak step labels)]
   end
   subgraph NEW[New video path]
-    V[New video] --> S[Sample 1 frame / 0.26 s]
-    S --> RGB[TSN RGB<br/>ResNet-50, Kinetics-400]
-    S --> OF[TVL1 optical flow]
-    OF --> FLOW[TSN flow<br/>ResNet-50, Kinetics-400]
+    V[New video] --> CH[Scene chunks<br/>PySceneDetect]
+    CH --> S[Sample every 13 frames<br/>0.217 s at 60 fps]
+    S --> RGB[TSN RGB<br/>ResNet-50, ActivityNet]
+    S --> OF[TVL1 optical flow<br/>5-frame stacks]
+    OF --> FLOW[TSN flow<br/>ResNet-50, ActivityNet]
     RGB --> CAT[Concatenate]
     FLOW --> CAT
     CAT --> FT2[(Feature sequence T x D)]

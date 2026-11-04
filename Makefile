@@ -5,6 +5,8 @@ install:
 	uv venv .venv && uv pip install --python $(PY) --extra-index-url https://download.pytorch.org/whl/cpu -e ".[train,serve,dev]"
 install-extract:  # + video preprocessing (torch backend, TVL1, PySceneDetect)
 	uv pip install --python $(PY) --extra-index-url https://download.pytorch.org/whl/cpu -e ".[extract]"
+	uv pip uninstall --python $(PY) opencv-python  # its cv2 shadows the contrib build (TVL1)
+	uv pip install --python $(PY) --reinstall --no-deps opencv-contrib-python-headless
 data:  # annotations + features for all splits (~16 GB)
 	$(PY) -m data.scripts.download_lolv2t --parts annotations train val test
 train-detector:  # variational U-Net -> models/detector.pt, detection/results.json

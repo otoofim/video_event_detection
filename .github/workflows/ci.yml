@@ -9,7 +9,11 @@ jobs:
         with: {python-version: "3.12", cache: pip}
       - name: Install (CPU torch)
         run: |
-          pip install --extra-index-url https://download.pytorch.org/whl/cpu -e ".[train,serve,dev]"
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu -e ".[train,serve,extract,dev]"
+          # scenedetect pulls opencv-python, whose cv2 shadows the contrib build TVL1 needs
+          pip uninstall -y opencv-python
+          pip install --force-reinstall --no-deps opencv-contrib-python-headless
+          python -c "import cv2; assert hasattr(cv2.optflow, 'DualTVL1OpticalFlow_create')"
       - run: ruff check .
       - run: ruff format --check .
       - run: pytest -q
