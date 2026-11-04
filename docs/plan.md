@@ -57,7 +57,7 @@ leaves open:
 - which mmaction2 config and checkpoints are used, and which layer is read;
 - how flow frames are stacked for the flow network;
 - why a 23.6 s clip has 109 steps when 0.26 s sampling predicts about 91;
-- how long videos are cut into clips.
+- how long videos are cut into clips (needed for the chunking stage).
 
 ### Step 1: preprocessing module (`preprocess/`)
 
@@ -114,14 +114,17 @@ Delete `temporal/`, `PhaseNet`, the `/analyze` phase output and the temporal mic
 - Preprocessing test on a tiny fixture video (shapes, sampling times). The cosine-similarity
   check stays a manual script.
 
-## Open questions
+## Decisions
 
-1. What is the VAE for? Assumed: regularisation against noisy labels, plus uncertainty. If
-   anomaly scoring was intended, the design changes.
-2. mmaction2 (exact, heavy install) or a torchvision port (lighter, may not match exactly)?
-   Recommended: mmaction2 first, validated against the dataset.
-3. Long videos: treat a new video as one clip, or cut it into chunks first as the dataset's
-   tool does?
+1. **Purpose of the VAE:** event detection together with uncertainty. The classification head
+   predicts events; sampling `z` several times gives per-step predictive uncertainty.
+2. **Extractor:** start with mmaction2 itself (same weights and code as the dataset), verified
+   against the shipped features. A torchvision/ONNX port is optional later, and only if it passes
+   the same cosine-similarity check.
+3. **Long videos are cut into chunks**, as the dataset's tool does. Step 0 must establish how it
+   cuts (chunk length, boundaries, any scene detection) so new chunks look like training clips.
+   `preprocess/` gets a chunking stage ahead of frame sampling, and `/detect_video` returns events
+   with timestamps offset to the full video.
 
 ## Constraints
 
