@@ -1,6 +1,9 @@
-"""Export trained checkpoints to ONNX (dynamic batch/length) plus a ``meta.json`` the service reads.
+"""Export a trained detector to ONNX (dynamic batch/length) plus the ``meta.json`` the service reads.
 
-python -m serving.onnx_export --detector models/detector.pt --temporal models/temporal.pt --out models
+python -m serving.onnx_export --detector models/detector.pt --out models
+
+The variational model gets a second input, ``noise`` ``(N, ceil(T / factor), latent)``: zeros give
+the deterministic prediction (``z = mu``), standard-normal draws give samples for uncertainty.
 """
 
 from __future__ import annotations
@@ -12,89 +15,86 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from detection.model import FeatureEventNet, StepMajor
-from temporal.model import PhaseNet, WindowMajor
+from detection.model import StepMajor, build_model
 
 
-def _check(onnx_path: Path, torch_out: np.ndarray, feed: np.ndarray, atol: float = 1e-4) -> None:
+def _check(path: Path, model: torch.nn.Module, feeds: dict, atol: float = 1e-4) -> None:
     import onnxruntime as ort
 
-    sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
-    got = sess.run(None, {sess.get_inputs()[0].name: feed})[0]
-    if not np.allclose(got, torch_out, atol=atol):
+    sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    with torch.inference_mode():
+        want = model(*[torch.from_numpy(v) for v in feeds.values()]).numpy()
+    got = sess.run(None, feeds)[0]
+    if got.shape != want.shape or not np.allclose(got, want, atol=atol):
         raise AssertionError(
-            f"{onnx_path.name}: ONNX output differs from PyTorch "
-            f"(max abs diff {np.abs(got - torch_out).max():.2e})"
+            f"{path.name}: ONNX output differs from PyTorch for input shapes "
+            f"{[v.shape for v in feeds.values()]}"
         )
 
 
-def export_detector(ckpt_path: Path, out: Path) -> dict:
-    ckpt = torch.load(ckpt_path, map_location="cpu")
-    net = FeatureEventNet(ckpt["in_dim"], len(ckpt["classes"]), ckpt["hidden"], ckpt["dropout"])
+def load_detector(ckpt_path: Path) -> tuple[torch.nn.Module, dict]:
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    # checkpoints from before the U-Net have no arch/model_kwargs: they are FeatureEventNet
+    kwargs = ckpt.get("model_kwargs") or {"hidden": ckpt["hidden"], "dropout": ckpt["dropout"]}
+    net = build_model(ckpt.get("arch", "dilated"), ckpt["in_dim"], len(ckpt["classes"]), **kwargs)
     net.load_state_dict(ckpt["state_dict"])
+    return net.eval(), ckpt
+
+
+def export_detector(ckpt_path: Path, out: Path) -> dict:
+    net, ckpt = load_detector(ckpt_path)
     model = StepMajor(net).eval()
-    dummy = torch.randn(2, 37, ckpt["in_dim"])
+    variational = bool(getattr(net, "variational", False))
+    factor, latent = getattr(net, "factor", 1), getattr(net, "latent", 0)
+
+    def feeds(n: int, t: int, random_noise: bool = False) -> dict:
+        rng = np.random.default_rng(t)
+        f = {"features": rng.standard_normal((n, t, ckpt["in_dim"])).astype(np.float32)}
+        if variational:
+            shape = (n, -(-t // factor), latent)
+            f["noise"] = (
+                rng.standard_normal(shape) if random_noise else np.zeros(shape)
+            ).astype(np.float32)
+        return f
+
+    dummy = feeds(2, 37, random_noise=True)
+    axes = {"features": {0: "batch", 1: "steps"}, "logits": {0: "batch", 1: "steps"}}
+    if variational:
+        axes["noise"] = {0: "batch", 1: "latent_steps"}
     path = out / "detector.onnx"
     torch.onnx.export(
         model,
-        dummy,
+        tuple(torch.from_numpy(v) for v in dummy.values()),
         str(path),
-        input_names=["features"],
+        input_names=list(dummy),
         output_names=["logits"],
-        dynamic_axes={"features": {0: "batch", 1: "steps"}, "logits": {0: "batch", 1: "steps"}},
+        dynamic_axes=axes,
         opset_version=17,
         dynamo=False,
     )
-    with torch.inference_mode():
-        _check(path, model(dummy).numpy(), dummy.numpy())
+    for n, t, rnd in [(2, 37, True), (1, 1, False), (3, 64, True), (1, 109, False)]:
+        _check(path, model, feeds(n, t, rnd))  # other lengths too: the graph must stay dynamic
     return {
         "in_dim": ckpt["in_dim"],
         "classes": ckpt["classes"],
         "use_flow": ckpt["use_flow"],
         "aggregator": ckpt["aggregator"],
-    }
-
-
-def export_temporal(ckpt_path: Path, out: Path) -> dict:
-    ckpt = torch.load(ckpt_path, map_location="cpu")
-    net = PhaseNet(len(ckpt["classes"]), len(ckpt["classes"]), ckpt["hidden"])
-    net.load_state_dict(ckpt["state_dict"])
-    model = WindowMajor(net).eval()
-    dummy = torch.randn(3, ckpt["window"], len(ckpt["classes"]))
-    path = out / "temporal.onnx"
-    torch.onnx.export(
-        model,
-        dummy,
-        str(path),
-        input_names=["windows"],
-        output_names=["logits"],
-        dynamic_axes={"windows": {0: "batch"}, "logits": {0: "batch"}},
-        opset_version=17,
-        dynamo=False,
-    )
-    with torch.inference_mode():
-        _check(path, model(dummy).numpy(), dummy.numpy())
-    return {
-        "window": ckpt["window"],
-        "stride": ckpt["stride"],
-        "bin_s": ckpt["bin_s"],
-        "classes": ckpt["classes"],
+        "arch": ckpt.get("arch", "dilated"),
+        "variational": variational,
+        "factor": factor,
+        "latent": latent,
     }
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--detector", type=Path, default=Path("models/detector.pt"))
-    ap.add_argument("--temporal", type=Path, default=Path("models/temporal.pt"))
     ap.add_argument("--out", type=Path, default=Path("models"))
     a = ap.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
-    meta = {
-        "detector": export_detector(a.detector, a.out),
-        "temporal": export_temporal(a.temporal, a.out),
-    }
+    meta = {"detector": export_detector(a.detector, a.out)}
     (a.out / "meta.json").write_text(json.dumps(meta, indent=1))
-    print(f"exported ONNX models + meta.json to {a.out}")
+    print(f"exported detector.onnx + meta.json to {a.out}")
 
 
 if __name__ == "__main__":

@@ -14,6 +14,11 @@ class Event(BaseModel):
     timestamp: float = Field(description="Seconds from the start of the clip")
     event_type: str
     confidence: float = Field(ge=0.0, le=1.0)
+    uncertainty: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="Mean std of the event class's probability over sampled latents, if sampled",
+    )
     bbox: list[float] | None = Field(
         default=None, description="[x1, y1, x2, y2]; unused for feature-based detection"
     )

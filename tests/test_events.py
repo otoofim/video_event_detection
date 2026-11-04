@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from common.schema import Event
 from detection.events import EventAggregator
@@ -47,3 +48,12 @@ def test_confusion_and_prf():
     cm = confusion_matrix(np.array([0, 1, 1, 2]), np.array([0, 1, 0, 2]))
     assert cm.sum() == 4
     assert per_class_prf(cm)["kill"]["recall"] == 0.5
+
+
+def test_event_uncertainty_is_mean_std_of_its_class_over_the_run():
+    agg = EventAggregator(min_run=2)
+    std = np.array([0.0, 0.2, 0.0, 0.0])
+    assert agg.update(0.0, onehot(1), std) == []
+    out = agg.update(0.1, onehot(1), std * 2)
+    assert len(out) == 1 and out[0].uncertainty == pytest.approx(0.3)
+    assert EventAggregator(min_run=1).update(0.0, onehot(1))[0].uncertainty is None

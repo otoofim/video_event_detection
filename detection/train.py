@@ -1,9 +1,13 @@
 """Train and evaluate the event detector on LoL-V2T clip features (weak caption labels).
 
     python -m data.scripts.download_lolv2t --parts annotations train val test
-    python -m detection.train --out models/detector.pt
+    python -m detection.train --out models/detector.pt                       # variational U-Net
+    python -m detection.train --arch unet --out models/detector_unet.pt      # ablation
+    python -m detection.train --arch dilated --out models/detector_dilated.pt  # ablation
 
 Metrics are against events derived from commentary keywords, not human event annotations.
+Loss: class-weighted CE (masked) + ``lam`` * reconstruction MSE + ``beta`` * KL, with ``beta``
+ramped linearly from 0 over the first ``beta_warmup_epochs``.
 """
 
 from __future__ import annotations
@@ -29,9 +33,7 @@ from common.lolv2t import (
 )
 from detection.events import EventAggregator
 from detection.metrics import confusion_matrix, event_prf, per_class_prf
-from detection.model import FeatureEventNet
-
-IGNORE = -100
+from detection.model import IGNORE, _logits, beta_at, build_model, mc_probs, vae_loss
 
 
 class ClipDataset(Dataset):
@@ -72,15 +74,40 @@ def pick(root: Path, split: str, cfg: dict) -> tuple[list[str], dict]:
     return ids, ann
 
 
-def evaluate(model: FeatureEventNet, ds: ClipDataset, cfg: dict) -> dict:
+def compute_loss(
+    model: nn.Module, x: torch.Tensor, y: torch.Tensor, weight, lam: float, beta: float
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """Training loss for any arch: the full VAE loss, or masked CE for the ablations."""
+    out = model(x)
+    if isinstance(out, dict):
+        return vae_loss(out, y, weight, lam, beta)
+    ce = nn.functional.cross_entropy(out, y, weight=weight, ignore_index=IGNORE)
+    return ce, {"ce": float(ce.detach())}
+
+
+def evaluate(model: nn.Module, ds: ClipDataset, cfg: dict) -> dict:
+    """Step and event metrics from the deterministic prediction (``z = mu``).
+
+    For the variational model it also reports the mean sampled std of the predicted class on
+    correct versus wrong steps: useful uncertainty is higher where the model is wrong.
+    """
     model.eval()
     cm = np.zeros((len(CLASSES),) * 2, dtype=np.int64)
     pooled: dict[str, dict[str, float]] = {}
+    unc = {"correct": [], "wrong": []}
+    n_mc = cfg.get("mc_samples", 0) if getattr(model, "variational", False) else 0
     with torch.inference_mode():
         for i, cid in enumerate(ds.ids):
             x, y = ds[i]
-            probs = torch.softmax(model(x.T[None]), dim=1)[0].T.numpy()  # (T, C)
-            cm += confusion_matrix(y.numpy(), probs.argmax(1), len(CLASSES))
+            probs = torch.softmax(_logits(model, x.T[None]), dim=1)[0].T.numpy()  # (T, C)
+            pred = probs.argmax(1)
+            cm += confusion_matrix(y.numpy(), pred, len(CLASSES))
+            if n_mc:
+                _, std = mc_probs(model, x.T[None], n_mc)
+                s = std[0].T.numpy()[np.arange(len(pred)), pred]
+                ok = pred == y.numpy()
+                unc["correct"] += s[ok].tolist()
+                unc["wrong"] += s[~ok].tolist()
             agg = EventAggregator(**cfg["aggregator"], classes=CLASSES)
             events = [
                 e
@@ -95,13 +122,19 @@ def evaluate(model: FeatureEventNet, ds: ClipDataset, cfg: dict) -> dict:
     for p in pooled.values():
         pr, rc = p["tp"] / max(p["n_pred"], 1), p["tp"] / max(p["n_gt"], 1)
         p.update(precision=pr, recall=rc, f1=2 * pr * rc / (pr + rc) if pr + rc else 0.0)
-    return {
+    report = {
         "confusion_matrix": cm.tolist(),
         "classes": CLASSES,
         "step": per_class_prf(cm, CLASSES),
         "event": pooled,
         "n_clips": len(ds),
     }
+    if n_mc:
+        report["uncertainty"] = {
+            "mc_samples": n_mc,
+            **{f"mean_std_{k}": float(np.mean(v)) if v else None for k, v in unc.items()},
+        }
+    return report
 
 
 def main() -> None:
@@ -109,8 +142,11 @@ def main() -> None:
     ap.add_argument("--config", type=Path, default=Path("detection/configs/default.yaml"))
     ap.add_argument("--out", type=Path, default=Path("models/detector.pt"))
     ap.add_argument("--report", type=Path, default=Path("detection/results.json"))
+    ap.add_argument("--arch", choices=["vunet", "unet", "dilated"], help="override config arch")
     a = ap.parse_args()
     cfg = yaml.safe_load(a.config.read_text())
+    if a.arch:
+        cfg["arch"] = a.arch
     root = Path(cfg["root"])
     torch.manual_seed(cfg["seed"])
 
@@ -124,50 +160,55 @@ def main() -> None:
     labels = torch.cat([y for _, y in sample])
     counts = torch.bincount(labels, minlength=len(CLASSES)).clamp(min=1).float()
     print("sample step labels:", dict(zip(CLASSES, counts.int().tolist(), strict=True)))
-    model = FeatureEventNet(feats.shape[1], hidden=cfg["hidden"], dropout=cfg["dropout"])
+    kwargs = dict(cfg["model"][cfg["arch"]])
+    model = build_model(cfg["arch"], feats.shape[1], **kwargs)
     model.mean.copy_(feats.mean(0).view(1, -1, 1))
     model.std.copy_(feats.std(0).clamp(min=1e-3).view(1, -1, 1))
-    loss_fn = nn.CrossEntropyLoss(
-        weight=(counts.sum() / (len(counts) * counts)).sqrt(), ignore_index=IGNORE
-    )
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
     loader = DataLoader(
-        ds["train"], cfg["batch_size"], shuffle=True, collate_fn=collate, num_workers=2
+        ds["train"], cfg["batch_size"], shuffle=True, collate_fn=collate, num_workers=cfg["num_workers"]
     )
-    best = -1.0
+    weight = (counts.sum() / (len(counts) * counts)).sqrt()
+    warmup = cfg["beta_warmup_epochs"] * len(loader)
+    best, step = -1.0, 0
     a.out.parent.mkdir(parents=True, exist_ok=True)
     for epoch in range(cfg["epochs"]):
         model.train()
-        total, n = 0.0, 0
+        sums: dict[str, float] = {}
+        n = 0
         for x, y in loader:
             opt.zero_grad()
-            loss = loss_fn(model(x), y)
+            beta = beta_at(step, warmup, cfg["beta"])
+            loss, parts = compute_loss(model, x, y, weight, cfg["lam"], beta)
             loss.backward()
             opt.step()
-            total, n = total + loss.item() * len(x), n + len(x)
+            step += 1
+            n += len(x)
+            for k, v in parts.items():
+                sums[k] = sums.get(k, 0.0) + v * len(x)
         val = evaluate(model, ds["val"], cfg)
         f1 = float(np.mean([m["f1"] for m in val["event"].values()])) if val["event"] else 0.0
-        print(
-            f"epoch {epoch + 1}/{cfg['epochs']}  loss {total / n:.4f}  val event macro-F1 {f1:.3f}"
-        )
+        terms = "  ".join(f"{k} {v / n:.4f}" for k, v in sums.items())
+        print(f"epoch {epoch + 1}/{cfg['epochs']}  {terms}  beta {beta:.3f}  val event F1 {f1:.3f}")
         if f1 > best:  # keep the best validation checkpoint
             best = f1
             torch.save(
                 {
                     "state_dict": model.state_dict(),
+                    "arch": cfg["arch"],
+                    "model_kwargs": kwargs,
                     "in_dim": int(feats.shape[1]),
-                    "hidden": cfg["hidden"],
-                    "dropout": cfg["dropout"],
                     "classes": CLASSES,
                     "use_flow": cfg["use_flow"],
                     "aggregator": cfg["aggregator"],
                 },
                 a.out,
             )
-    ckpt = torch.load(a.out, map_location="cpu")
+    ckpt = torch.load(a.out, map_location="cpu", weights_only=True)
     model.load_state_dict(ckpt["state_dict"])
     report = {
         "label_source": "weak: commentary keywords",
+        "arch": cfg["arch"],
         "val": evaluate(model, ds["val"], cfg),
         "test": evaluate(model, ds["test"], cfg),
     }

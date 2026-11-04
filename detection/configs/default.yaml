@@ -1,10 +1,18 @@
-# Feature-based detector on LoL-V2T with weak (caption-keyword) event labels.
+# Detector on LoL-V2T features with weak (caption-keyword) event labels.
 root: data/lolv2t
 use_flow: true               # concatenate optical-flow features to RGB features
-hidden: 256
-dropout: 0.3
+arch: vunet                  # vunet (detector) | unet, dilated (ablations); --arch overrides
+model:
+  vunet: {hidden: 64, latent: 32, levels: 2, dropout: 0.1}
+  unet: {hidden: 64, levels: 2, dropout: 0.1}
+  dilated: {hidden: 256, dropout: 0.3}
+lam: 1.0                     # weight of the reconstruction MSE (vunet only)
+beta: 0.1                    # final weight of the KL term (vunet only)
+beta_warmup_epochs: 5        # beta ramps linearly from 0 over these epochs
+mc_samples: 16               # z samples for the uncertainty report (vunet only)
 epochs: 15
 batch_size: 16
+num_workers: 2               # DataLoader workers (features load lazily from disk)
 lr: 0.001
 weight_decay: 0.0001
 seed: 0
