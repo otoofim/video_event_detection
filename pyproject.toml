@@ -1,7 +1,7 @@
 [project]
 name = "video_event_detection"
 version = "0.1.0"
-description = "Video event detection on LoL-V2T with caption-derived labels, low-latency serving and a temporal play-phase model"
+description = "Video event detection on LoL-V2T: caption-derived labels, a variational U-Net detector, and reproducible feature extraction for new video"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -12,10 +12,15 @@ dependencies = [
 
 [project.optional-dependencies]
 train = ["torch>=2.2", "onnx>=1.16", "pandas>=2.2", "matplotlib>=3.8"]
+serve = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "onnxruntime>=1.17", "python-multipart>=0.0.9"]
+# video preprocessing (torch backend); TVL1 needs the contrib build of OpenCV
+extract = ["torch>=2.2", "torchvision>=0.17", "opencv-contrib-python-headless>=4.8", "scenedetect>=0.6.4"]
+# same backbone code as the dataset; also needs mmcv-full 1.x and torch<2 (see README)
+mmaction = ["mmaction2==0.24.1"]
 dev = ["pytest>=8", "ruff>=0.4", "httpx>=0.27", "jupyter-client", "nbformat", "nbclient", "ipykernel"]
 
 [tool.setuptools]
-packages = ["common", "detection", "temporal", "serving", "benchmarks", "data", "data.scripts"]
+packages = ["common", "detection", "preprocess", "serving", "benchmarks", "data", "data.scripts"]
 
 [tool.ruff]
 line-length = 100
