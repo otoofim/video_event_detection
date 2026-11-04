@@ -37,7 +37,9 @@ class Detector:
             self._model = None
             meta = json.loads((self.weights.parent / "meta.json").read_text())["detector"]
             self.variational, self.factor, self.latent = (
-                meta["variational"], meta["factor"], meta["latent"]
+                meta["variational"],
+                meta["factor"],
+                meta["latent"],
             )
             self.use_flow, self.aggregator = meta["use_flow"], meta["aggregator"]
         else:

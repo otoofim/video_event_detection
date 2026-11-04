@@ -1,13 +1,13 @@
-# Inference-only image: onnxruntime + numpy, no PyTorch.
+# Slim, features-only image: onnxruntime + numpy, no PyTorch. /detect_video answers 501 here;
+# use serving/Dockerfile.full for video input.
 FROM python:3.12-slim
 WORKDIR /app
 RUN pip install --no-cache-dir numpy pydantic pyyaml fastapi "uvicorn[standard]" onnxruntime \
     python-multipart
 COPY common ./common
 COPY detection/__init__.py detection/events.py ./detection/
-COPY temporal/__init__.py temporal/dataset.py ./temporal/
 COPY serving ./serving
-# models/ (detector.onnx, temporal.onnx, meta.json) is mounted or baked in by the user:
+# models/ (detector.onnx, meta.json) is mounted or baked in by the user:
 #   docker run -p 8000:8000 -v $PWD/models:/app/models video-event-serving
 ENV MODEL_DIR=/app/models PYTHONUNBUFFERED=1
 EXPOSE 8000

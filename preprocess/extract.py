@@ -52,9 +52,7 @@ def iter_frames(path: str | Path, width: int, height: int) -> Iterator[np.ndarra
 class Extractor:
     """RGB and flow TSN networks plus the dataset's frame pipeline."""
 
-    def __init__(
-        self, cfg: ExtractConfig, rgb_net: torch.nn.Module, flow_net: torch.nn.Module
-    ):
+    def __init__(self, cfg: ExtractConfig, rgb_net: torch.nn.Module, flow_net: torch.nn.Module):
         self.cfg, self.rgb_net, self.flow_net = cfg, rgb_net.eval(), flow_net.eval()
 
     @classmethod

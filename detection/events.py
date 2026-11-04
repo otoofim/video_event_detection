@@ -62,7 +62,5 @@ def events_from_probs(
     agg = EventAggregator(min_run, min_conf)
     stds = std if std is not None else [None] * len(probs)
     return [
-        e
-        for t, p, s in zip(times, probs, stds, strict=True)
-        for e in agg.update(float(t), p, s)
+        e for t, p, s in zip(times, probs, stds, strict=True) for e in agg.update(float(t), p, s)
     ]

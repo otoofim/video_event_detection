@@ -15,7 +15,11 @@ SENTENCES = ["welcome back", "he gets the kill", "baron is down", "big team figh
 
 def _fake_root(root, rng):
     (root / "annotations").mkdir(parents=True)
-    for split, fname in [("training", "training"), ("validation", "validation"), ("testing", "testing")]:
+    for split, fname in [
+        ("training", "training"),
+        ("validation", "validation"),
+        ("testing", "testing"),
+    ]:
         (root / split).mkdir()
         ann = {}
         for k in range(3):
@@ -38,14 +42,30 @@ def test_train_one_epoch_writes_checkpoint_and_report(tmp_path, arch):
 
     _fake_root(tmp_path / "data", np.random.default_rng(0))
     cfg = yaml.safe_load(open("detection/configs/default.yaml"))
-    cfg.update(root=str(tmp_path / "data"), epochs=1, norm_clips=3, mc_samples=2, batch_size=2, num_workers=0)
+    cfg.update(
+        root=str(tmp_path / "data"),
+        epochs=1,
+        norm_clips=3,
+        mc_samples=2,
+        batch_size=2,
+        num_workers=0,
+    )
     cfg["model"]["vunet"] = {"hidden": 8, "latent": 4, "levels": 2, "dropout": 0.0}
     cfg["model"]["dilated"] = {"hidden": 8, "dropout": 0.0}
     (tmp_path / "cfg.yaml").write_text(yaml.safe_dump(cfg))
     out, report = tmp_path / "det.pt", tmp_path / "results.json"
     argv = sys.argv
-    sys.argv = ["x", "--config", str(tmp_path / "cfg.yaml"), "--out", str(out),
-                "--report", str(report), "--arch", arch]
+    sys.argv = [
+        "x",
+        "--config",
+        str(tmp_path / "cfg.yaml"),
+        "--out",
+        str(out),
+        "--report",
+        str(report),
+        "--arch",
+        arch,
+    ]
     try:
         main()
     finally:

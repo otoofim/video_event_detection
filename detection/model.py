@@ -116,8 +116,7 @@ class VariationalUNet(nn.Module):
             self.to_logvar = nn.Conv1d(chs[-1], latent, 1)
             self.from_z = nn.Conv1d(latent, chs[-1], 1)
             self.rec_up = nn.ModuleList(
-                nn.ConvTranspose1d(chs[i + 1], chs[i], 2, stride=2)
-                for i in reversed(range(levels))
+                nn.ConvTranspose1d(chs[i + 1], chs[i], 2, stride=2) for i in reversed(range(levels))
             )
             self.rec_blocks = nn.ModuleList(
                 _ConvBlock(chs[i], dropout) for i in reversed(range(levels))

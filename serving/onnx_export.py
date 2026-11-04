@@ -52,9 +52,9 @@ def export_detector(ckpt_path: Path, out: Path) -> dict:
         f = {"features": rng.standard_normal((n, t, ckpt["in_dim"])).astype(np.float32)}
         if variational:
             shape = (n, -(-t // factor), latent)
-            f["noise"] = (
-                rng.standard_normal(shape) if random_noise else np.zeros(shape)
-            ).astype(np.float32)
+            f["noise"] = (rng.standard_normal(shape) if random_noise else np.zeros(shape)).astype(
+                np.float32
+            )
         return f
 
     dummy = feeds(2, 37, random_noise=True)

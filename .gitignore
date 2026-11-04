@@ -7,6 +7,6 @@ __pycache__/
 models/
 data/lolv2t/
 detection/results.json
-temporal/results.json
+detection/results_*.json
 graphify-out/
 .ipynb_checkpoints/

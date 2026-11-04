@@ -64,13 +64,17 @@ def main() -> None:
     a = ap.parse_args()
 
     ex = Extractor.from_checkpoints(
-        rgb=CHECKPOINTS["rgb"], flow=CHECKPOINTS["flow"], backend=a.backend,
+        rgb=CHECKPOINTS["rgb"],
+        flow=CHECKPOINTS["flow"],
+        backend=a.backend,
         trust=a.trust_checkpoint,
     )
     n, fps = frame_count(a.video)
     s = int(round((a.start or 0.0) * fps))
     e = int(round(a.end * fps)) if a.end is not None else n
-    frames = [f for i, f in enumerate(iter_frames(a.video, ex.cfg.width, ex.cfg.height)) if s <= i < e]
+    frames = [
+        f for i, f in enumerate(iter_frames(a.video, ex.cfg.width, ex.cfg.height)) if s <= i < e
+    ]
     feats = ex.features(np.stack(frames), fps)["features"]
     d = split_dir(a.root, a.split)
     rgb_ref = load_features(d / f"{a.clip_id}_rgb.pkl")

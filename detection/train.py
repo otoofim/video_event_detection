@@ -166,7 +166,11 @@ def main() -> None:
     model.std.copy_(feats.std(0).clamp(min=1e-3).view(1, -1, 1))
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
     loader = DataLoader(
-        ds["train"], cfg["batch_size"], shuffle=True, collate_fn=collate, num_workers=cfg["num_workers"]
+        ds["train"],
+        cfg["batch_size"],
+        shuffle=True,
+        collate_fn=collate,
+        num_workers=cfg["num_workers"],
     )
     weight = (counts.sum() / (len(counts) * counts)).sqrt()
     warmup = cfg["beta_warmup_epochs"] * len(loader)
