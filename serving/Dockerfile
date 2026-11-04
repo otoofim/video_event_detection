@@ -1,8 +1,8 @@
-# Inference-only image: onnxruntime + numpy + opencv, no PyTorch.
+# Inference-only image: onnxruntime + numpy, no PyTorch.
 FROM python:3.12-slim
 WORKDIR /app
-RUN pip install --no-cache-dir numpy opencv-python-headless pydantic pyyaml fastapi \
-    "uvicorn[standard]" onnxruntime python-multipart websockets
+RUN pip install --no-cache-dir numpy pydantic pyyaml fastapi "uvicorn[standard]" onnxruntime \
+    python-multipart
 COPY common ./common
 COPY detection/__init__.py detection/events.py ./detection/
 COPY temporal/__init__.py temporal/dataset.py ./temporal/

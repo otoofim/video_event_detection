@@ -1,19 +1,17 @@
 [project]
 name = "video_event_detection"
 version = "0.1.0"
-description = "Real-time eSports event detection, low-latency serving and temporal anomaly analysis"
+description = "Video event detection on LoL-V2T with caption-derived labels, low-latency serving and a temporal play-phase model"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.26",
-    "opencv-python-headless>=4.9",
     "pydantic>=2.6",
     "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
 train = ["torch>=2.2", "onnx>=1.16", "pandas>=2.2", "matplotlib>=3.8"]
-serve = ["fastapi>=0.110", "uvicorn>=0.29", "onnxruntime>=1.17", "python-multipart>=0.0.9", "websockets>=12"]
 dev = ["pytest>=8", "ruff>=0.4", "httpx>=0.27", "jupyter-client", "nbformat", "nbclient", "ipykernel"]
 
 [tool.setuptools]

@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from common.lolv2t import (
-    LOL_CLASSES,
+    CLASSES,
     _resample,
     load_features,
     step_labels,
@@ -36,7 +36,7 @@ def test_step_labels_kill_wins_overlap_and_background_default():
         Event(timestamp=2.0, event_type="kill", confidence=1),
     ]
     y = step_labels(evs, 10, 10.0, span_s=2.0)  # steps are 1 s wide, centres at 0.5, 1.5, ...
-    assert y[0] == 0 and y[2] == LOL_CLASSES.index("kill") and y[3] == LOL_CLASSES.index("kill")
+    assert y[0] == 0 and y[2] == CLASSES.index("kill") and y[3] == CLASSES.index("kill")
     assert y[5] == 0
     assert step_times(4, 8.0).tolist() == [1.0, 3.0, 5.0, 7.0]
 
@@ -66,11 +66,11 @@ def test_resample_length():
 
 def test_feature_net_shapes_and_padding_collate():
     torch = pytest.importorskip("torch")
-    from detection.seq_model import FeatureEventNet
-    from detection.train_lolv2t import IGNORE, collate
+    from detection.model import FeatureEventNet
+    from detection.train import IGNORE, collate
 
     net = FeatureEventNet(16, hidden=8)
-    assert net(torch.randn(2, 16, 30)).shape == (2, len(LOL_CLASSES), 30)
+    assert net(torch.randn(2, 16, 30)).shape == (2, len(CLASSES), 30)
     x, y = collate(
         [
             (torch.zeros(5, 16), torch.zeros(5, dtype=torch.long)),

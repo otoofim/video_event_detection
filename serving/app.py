@@ -2,10 +2,13 @@
 
     uvicorn serving.app:app --port 8000          # MODEL_DIR=models by default
 
-POST /detect   one frame (jpeg/png) -> class probabilities + event (micro-batched across requests)
-POST /detect_features  precomputed clip features (.npy) -> events (LoL-V2T detector)
-POST /analyze  finished event stream -> irregular-play windows
-WS   /stream   binary jpeg frames in, JSON per frame out (events + anomalies as they occur)
+POST /detect_features  clip features (.npy, shape (T, D)) -> events
+POST /analyze          clip features -> events + play phase per window (full pipeline)
+GET  /meta, /health
+
+The detector sees a whole clip at once (its convolutions use context on both sides), so the
+service works on clips, not frame by frame; concurrent /analyze calls share a micro-batcher for
+the fixed-length temporal windows.
 """
 
 from __future__ import annotations
@@ -17,19 +20,10 @@ import time
 from contextlib import asynccontextmanager
 
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from fastapi import FastAPI, File, HTTPException, UploadFile
 
-from common.schema import CLASSES, Event
-from common.video import decode_image
-from detection.events import make_event
 from serving.batching import MicroBatcher
-from serving.pipeline import Models, StreamSession, analyze_events
-
-
-class AnalyzeRequest(BaseModel):
-    events: list[Event]
-    duration: float
+from serving.pipeline import Models
 
 
 def create_app(
@@ -38,15 +32,24 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.models = Models(model_dir or os.environ.get("MODEL_DIR", "models"))
-        app.state.det_batcher = MicroBatcher(app.state.models.detect_probs, max_batch, max_wait_ms)
-        app.state.tmp_batcher = MicroBatcher(app.state.models.score_windows, 8, max_wait_ms)
-        await app.state.det_batcher.start()
+        app.state.tmp_batcher = MicroBatcher(app.state.models.phase_probs, max_batch, max_wait_ms)
         await app.state.tmp_batcher.start()
         yield
-        await app.state.det_batcher.stop()
         await app.state.tmp_batcher.stop()
 
     app = FastAPI(title="video_event_detection", lifespan=lifespan)
+
+    async def _read_features(file: UploadFile, duration: float) -> np.ndarray:
+        m = app.state.models
+        try:
+            feats = np.load(io.BytesIO(await file.read()), allow_pickle=False)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"not a .npy array: {exc}") from exc
+        if feats.ndim != 2 or feats.shape[1] != m.in_dim or len(feats) == 0 or duration <= 0:
+            raise HTTPException(
+                status_code=400, detail=f"expected (T>0, {m.in_dim}) features and duration>0"
+            )
+        return feats
 
     @app.get("/health")
     def health():
@@ -56,43 +59,12 @@ def create_app(
     def meta():
         return app.state.models.meta
 
-    @app.post("/detect")
-    async def detect(file: UploadFile = File(...), timestamp: float = 0.0):
-        t0 = time.perf_counter()
-        try:
-            rgb = decode_image(await file.read())
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        m = app.state.models
-        probs = await app.state.det_batcher.submit(m.preprocess(rgb))
-        cls = int(probs.argmax())
-        event = None
-        if cls != 0:
-            event = make_event(cls, timestamp, float(probs[cls]), rgb)
-        return {
-            "probs": dict(zip(CLASSES, map(float, probs), strict=True)),
-            "event": event.model_dump() if event else None,
-            "latency_ms": (time.perf_counter() - t0) * 1000,
-        }
-
     @app.post("/detect_features")
     async def detect_features(file: UploadFile = File(...), duration: float = 1.0):
-        """Events from precomputed clip features (``.npy``, shape (T, D)), e.g. LoL-V2T."""
-        m = app.state.models
-        if m.lol is None:
-            raise HTTPException(status_code=503, detail="no LoL-V2T model loaded")
-        try:
-            feats = np.load(io.BytesIO(await file.read()), allow_pickle=False)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=f"not a .npy array: {exc}") from exc
-        dim = m.meta["lolv2t"]["in_dim"]
-        if feats.ndim != 2 or feats.shape[1] != dim or len(feats) == 0 or duration <= 0:
-            raise HTTPException(
-                status_code=400, detail=f"expected (T>0, {dim}) features and duration>0"
-            )
+        feats = await _read_features(file, duration)
         t0 = time.perf_counter()
-        events = await asyncio.get_running_loop().run_in_executor(
-            None, m.detect_features, feats, duration
+        events, _ = await asyncio.get_running_loop().run_in_executor(
+            None, app.state.models.detect, feats, duration
         )
         return {
             "events": [e.model_dump() for e in events],
@@ -100,38 +72,24 @@ def create_app(
         }
 
     @app.post("/analyze")
-    async def analyze(req: AnalyzeRequest):
-        anomalies = analyze_events(app.state.models, req.events, req.duration)
-        return {"anomalies": [a.model_dump() for a in anomalies]}
-
-    @app.websocket("/stream")
-    async def stream(ws: WebSocket, fps: float = 10.0):
-        await ws.accept()
+    async def analyze(file: UploadFile = File(...), duration: float = 1.0):
+        feats = await _read_features(file, duration)
         m = app.state.models
-        sess = StreamSession(m, fps)
-        try:
-            while True:
-                data = await ws.receive_bytes()
-                t0 = time.perf_counter()
-                rgb = decode_image(data)
-                probs = await app.state.det_batcher.submit(m.preprocess(rgb))
-                events = sess.on_probs(probs, rgb)
-                windows = sess.due_windows()
-                anomalies = []
-                if windows:
-                    scores = await app.state.tmp_batcher.submit(windows[-1][2])
-                    anomalies = sess.flags(windows[-1:], np.atleast_1d(scores))
-                await ws.send_json(
-                    {
-                        "frame": sess.frame_idx - 1,
-                        "timestamp": (sess.frame_idx - 1) / fps,
-                        "events": [e.model_dump() for e in events],
-                        "anomalies": [a.model_dump() for a in anomalies],
-                        "latency_ms": (time.perf_counter() - t0) * 1000,
-                    }
-                )
-        except WebSocketDisconnect:
-            return
+        t0 = time.perf_counter()
+        loop = asyncio.get_running_loop()
+        events, probs = await loop.run_in_executor(None, m.detect, feats, duration)
+        windows, starts = m.windows(probs, duration)
+        phases = []
+        if len(windows):
+            scores = np.stack(
+                await asyncio.gather(*(app.state.tmp_batcher.submit(w) for w in windows))
+            )
+            phases = m.phases(scores, starts)
+        return {
+            "events": [e.model_dump() for e in events],
+            "phases": phases,
+            "latency_ms": (time.perf_counter() - t0) * 1000,
+        }
 
     return app
 

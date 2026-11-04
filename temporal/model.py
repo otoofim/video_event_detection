@@ -1,43 +1,37 @@
-"""1D-CNN autoencoder over windows of event features; reconstruction error = irregularity score."""
+"""1D-CNN that classifies the play phase of a window of per-second event probabilities."""
 
 from __future__ import annotations
 
 import torch
 from torch import nn
 
-from temporal.dataset import N_FEATURES
+from common.schema import CLASSES
 
 
-class ConvAE(nn.Module):
-    """``(N, F, T)`` -> reconstruction ``(N, F, T)``; ``T`` must be divisible by 4."""
+class PhaseNet(nn.Module):
+    """``(N, C, T)`` -> ``(N, n_phases)`` logits; max+mean pooling over time."""
 
-    def __init__(self, in_ch: int = N_FEATURES, latent: int = 8):
+    def __init__(self, in_ch: int = len(CLASSES), n_phases: int = len(CLASSES), hidden: int = 32):
         super().__init__()
-        self.enc = nn.Sequential(
-            nn.Conv1d(in_ch, 16, 5, stride=2, padding=2),
+        self.conv = nn.Sequential(
+            nn.Conv1d(in_ch, hidden, 3, padding=1),
             nn.ReLU(),
-            nn.Conv1d(16, 32, 5, stride=2, padding=2),
+            nn.Conv1d(hidden, hidden * 2, 3, padding=1),
             nn.ReLU(),
-            nn.Conv1d(32, latent, 3, padding=1),
         )
-        self.dec = nn.Sequential(
-            nn.Conv1d(latent, 32, 3, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose1d(32, 16, 4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose1d(16, in_ch, 4, stride=2, padding=1),
-        )
+        self.head = nn.Linear(hidden * 4, n_phases)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.dec(self.enc(x))
+        h = self.conv(x)
+        return self.head(torch.cat([h.mean(dim=2), h.amax(dim=2)], dim=1))
 
 
-class WindowScorer(nn.Module):
-    """Wraps the autoencoder to output one score per window (what gets exported to ONNX)."""
+class WindowMajor(nn.Module):
+    """``(N, T, C)`` in, as the service API and ONNX export use."""
 
-    def __init__(self, ae: ConvAE):
+    def __init__(self, net: PhaseNet):
         super().__init__()
-        self.ae = ae
+        self.net = net
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return ((self.ae(x) - x) ** 2).mean(dim=(1, 2))
+        return self.net(x.transpose(1, 2))

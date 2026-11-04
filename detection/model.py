@@ -1,44 +1,54 @@
-"""Frame-level event classifier: a small CNN that runs comfortably on CPU."""
+"""Per-step event classifier over precomputed clip features (used for LoL-V2T)."""
 
 from __future__ import annotations
 
 import torch
 from torch import nn
 
-from common.schema import CLASSES
+from common.lolv2t import CLASSES
 
 
-def _block(cin: int, cout: int) -> nn.Sequential:
-    return nn.Sequential(
-        nn.Conv2d(cin, cout, 3, stride=2, padding=1, bias=False),
-        nn.BatchNorm2d(cout),
-        nn.ReLU(inplace=True),
-    )
-
-
-class EventNet(nn.Module):
-    """Input ``(N, 3, H, W)`` -> logits ``(N, len(CLASSES))``.
-
-    The pooled grid keeps coarse spatial layout: banners are told apart by *where* they are as well
-    as by colour, so a global average pool would throw away exactly the signal that matters.
-    """
-
-    def __init__(self, num_classes: int = len(CLASSES), width: int = 16):
+class _Block(nn.Module):
+    def __init__(self, ch: int, dilation: int, dropout: float):
         super().__init__()
-        self.features = nn.Sequential(
-            _block(3, width),
-            _block(width, width * 2),
-            _block(width * 2, width * 4),
-            _block(width * 4, width * 4),
-        )
-        self.pool = nn.AdaptiveAvgPool2d((3, 5))
-        self.head = nn.Sequential(
-            nn.Flatten(),
-            nn.Dropout(0.2),
-            nn.Linear(width * 4 * 15, 64),
-            nn.ReLU(inplace=True),
-            nn.Linear(64, num_classes),
-        )
+        self.conv = nn.Conv1d(ch, ch, 3, padding=dilation, dilation=dilation)
+        self.drop = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.head(self.pool(self.features(x)))
+        return x + self.drop(torch.relu(self.conv(x)))
+
+
+class FeatureEventNet(nn.Module):
+    """``(N, D, T)`` features -> ``(N, C, T)`` per-step logits.
+
+    A 1x1 projection followed by dilated residual convolutions (receptive field about 29 steps).
+    Feature mean/std are stored as buffers so the exported model normalises its own input.
+    """
+
+    def __init__(
+        self,
+        in_dim: int,
+        n_classes: int = len(CLASSES),
+        hidden: int = 256,
+        dropout: float = 0.3,
+    ):
+        super().__init__()
+        self.register_buffer("mean", torch.zeros(1, in_dim, 1))
+        self.register_buffer("std", torch.ones(1, in_dim, 1))
+        self.proj = nn.Sequential(nn.Dropout(dropout), nn.Conv1d(in_dim, hidden, 1), nn.ReLU())
+        self.blocks = nn.Sequential(*[_Block(hidden, d, dropout) for d in (1, 2, 4, 8)])
+        self.out = nn.Conv1d(hidden, n_classes, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.out(self.blocks(self.proj((x - self.mean) / self.std)))
+
+
+class StepMajor(nn.Module):
+    """``(N, T, D)`` in, ``(N, T, C)`` out: the layout the service API and ONNX export use."""
+
+    def __init__(self, net: FeatureEventNet):
+        super().__init__()
+        self.net = net
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x.transpose(1, 2)).transpose(1, 2)

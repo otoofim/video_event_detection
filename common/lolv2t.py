@@ -18,10 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from common.schema import Event
-
-LOL_EVENT_TYPES = ["kill", "objective", "teamfight"]
-LOL_CLASSES = ["background", *LOL_EVENT_TYPES]
+from common.schema import CLASSES, EVENT_TYPES, Event
 
 # Later entries win where labelled spans overlap (kill is the most specific).
 _RULES = {
@@ -133,7 +130,13 @@ def step_labels(
     """Per-step class index: an event labels the steps in ``[t, t + span_s)``."""
     t = step_times(n_steps, duration)
     labels = np.zeros(n_steps, dtype=np.int64)
-    order = {name: i for i, name in enumerate(LOL_EVENT_TYPES)}  # kill last -> wins overlaps
-    for e in sorted(events, key=lambda e: order[e.event_type]):
-        labels[(t >= e.timestamp) & (t < e.timestamp + span_s)] = LOL_CLASSES.index(e.event_type)
+    # Apply lowest priority first so the earlier type in EVENT_TYPES (kill) wins overlaps.
+    for e in sorted(events, key=lambda e: -EVENT_TYPES.index(e.event_type)):
+        labels[(t >= e.timestamp) & (t < e.timestamp + span_s)] = CLASSES.index(e.event_type)
     return labels
+
+
+def phase_label(step_labels_in_window: np.ndarray) -> int:
+    """Play phase of a window: the highest-priority event class present, else background (0)."""
+    present = set(np.unique(step_labels_in_window).tolist()) - {0}
+    return min(present) if present else 0  # class index order == priority order

@@ -5,12 +5,8 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 models/
-data/raw/*
-!data/raw/.gitkeep
-data/events/
+data/lolv2t/
 detection/results.json
 temporal/results.json
 graphify-out/
 .ipynb_checkpoints/
-data/lolv2t/
-detection/results_lolv2t.json
