@@ -24,8 +24,11 @@ the whole design:
 
 1. **There are no event labels.** Labels come from the captions.
 2. **There is no raw video.** The archives hold precomputed per-clip features
-   (`<clip>_rgb.pkl`, `<clip>_flow.pkl`, 2048-d per step); Riot's policy keeps footage
-   unpublished. No licence is stated on the dataset page, so the repo only downloads it
+   (`<clip>_rgb.pkl`, `<clip>_flow.pkl`); Riot's policy keeps footage unpublished. Per the paper
+   (section 5.1) the videos are down-sampled to one frame every 0.26 s and passed through TSN
+   (built on mmaction2): two ResNet-50 networks pre-trained on Kinetics-400 *without fine-tuning*,
+   one on RGB appearance and one on TVL1 optical flow. The one RGB file inspected is
+   `(1, 109, 2048)`, i.e. ResNet-50's pooled 2048-d output; the flow file shape was not checked. No licence is stated on the dataset page, so the repo only downloads it
    (`data/scripts/download_lolv2t.py`) and never redistributes it.
 
 ## ADR-1: labels from captions (weak supervision)
@@ -40,8 +43,11 @@ Consequences, stated plainly:
 - Labels are noisy. Commentary lags the action, ASR text is imperfect, keywords miss events and
   fire on talk *about* events. Every metric here measures agreement with the commentary, not with
   what happened in the game.
-- Step times assume feature steps are uniform over the clip duration. This is consistent with the
-  step counts (a 23.6 s clip has 109 steps) but has not been verified against the original tool.
+- Step times assume feature steps are uniform over the clip duration. This is **not confirmed**:
+  the paper samples one frame every 0.26 s, which would give about 91 steps for the one 23.6 s clip
+  inspected, but the file has 109 (about 0.216 s per step). Until the discrepancy is explained
+  (annotation duration vs. video length, or a different stride), event timestamps may be off by a
+  few seconds, which is why evaluation uses a 3 s tolerance.
 - A model can partly learn from the visual consequences of events (flow, scene change) and partly
   from commentary-correlated visual context. That is the point of the task but also why the numbers
   should not be read as game-event accuracy.
@@ -113,7 +119,8 @@ I3D-style network is not part of this repo) and a causal detector.
 ## Limitations
 
 - Weak, keyword-derived labels; see ADR-1.
-- No end-to-end raw-video path: inputs are LoL-V2T's precomputed features.
+- No end-to-end raw-video path: inputs are LoL-V2T's precomputed TSN features, so the service
+  cannot take new video without reproducing that extractor (ResNet-50, Kinetics-400, TVL1 flow).
 - `bbox` is never filled; no spatial localisation.
 - No irregular-play detection.
 - Latency numbers (once measured) are CPU-only and use random features of the stated length.
