@@ -28,6 +28,11 @@ def _softmax(logits: np.ndarray) -> np.ndarray:
     return e / e.sum(axis=-1, keepdims=True)
 
 
+def step_uncertainty(mean: np.ndarray, std: np.ndarray) -> np.ndarray:
+    """Per-step uncertainty: the sampled std of the predicted (highest mean) class."""
+    return std[np.arange(len(mean)), mean.argmax(axis=1)]
+
+
 class Models:
     """Shared, read-only detector session (+ an optional video feature extractor)."""
 
@@ -67,7 +72,7 @@ class Models:
         samples: int = 1,
         times: np.ndarray | None = None,
     ) -> tuple[list[Event], np.ndarray, np.ndarray | None]:
-        """Events, mean step probabilities and (when ``samples > 1``) per-step std."""
+        """Events, mean step probabilities and (when ``samples > 1``) ``(T, C)`` per-step std."""
         mean, std = self.step_probs(feats, samples)
         if times is None:
             times = step_times(len(feats), duration)

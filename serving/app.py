@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 
-from serving.pipeline import Models, load_extractor
+from serving.pipeline import Models, load_extractor, step_uncertainty
 
 _UNSET = object()
 
@@ -69,12 +69,13 @@ def create_app(model_dir: str | None = None, extractor=_UNSET) -> FastAPI:
     ):
         feats = await _read_features(file, duration)
         t0 = time.perf_counter()
-        events, _, unc = await asyncio.get_running_loop().run_in_executor(
+        events, mean, std = await asyncio.get_running_loop().run_in_executor(
             None, app.state.models.detect, feats, duration, samples
         )
+        unc = None if std is None else step_uncertainty(mean, std).round(4).tolist()
         return {
             "events": [e.model_dump() for e in events],
-            "uncertainty": None if unc is None else unc.max(axis=1).round(4).tolist(),
+            "uncertainty": unc,
             "latency_ms": (time.perf_counter() - t0) * 1000,
         }
 

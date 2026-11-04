@@ -103,3 +103,11 @@ def test_detect_video_offsets_events_by_chunk_start(video_model_dir, tmp_path):
     assert {"preprocess_ms", "model_ms"} <= set(body["latency_ms"])
     assert bad.status_code == 400
     json.dumps(body)
+
+
+def test_step_uncertainty_is_std_of_the_predicted_class():
+    from serving.pipeline import step_uncertainty
+
+    mean = np.array([[0.7, 0.1, 0.1, 0.1], [0.1, 0.2, 0.6, 0.1]])
+    std = np.array([[0.01, 0.3, 0.0, 0.0], [0.2, 0.0, 0.05, 0.0]])
+    assert step_uncertainty(mean, std).tolist() == [0.01, 0.05]
