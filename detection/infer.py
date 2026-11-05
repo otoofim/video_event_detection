@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
+from common.device import onnx_providers, torch_device
 from common.lolv2t import load_annotations, load_clip, step_times
 from common.schema import Event
 from detection.events import events_from_probs
@@ -19,12 +20,12 @@ from detection.events import events_from_probs
 class Detector:
     """Per-step classifier over either a PyTorch checkpoint (.pt) or an ONNX file (.onnx)."""
 
-    def __init__(self, weights: str | Path):
+    def __init__(self, weights: str | Path, device: str = "auto"):
         self.weights = str(weights)
         if self.weights.endswith(".onnx"):
             import onnxruntime as ort
 
-            self._sess = ort.InferenceSession(self.weights, providers=["CPUExecutionProvider"])
+            self._sess = ort.InferenceSession(self.weights, providers=onnx_providers(device))
             self._model = None
             self.use_flow = True
         else:
@@ -32,12 +33,13 @@ class Detector:
 
             from detection.model import FeatureEventNet
 
-            ckpt = torch.load(self.weights, map_location="cpu")
+            self._device = torch_device(device)
+            ckpt = torch.load(self.weights, map_location=self._device)
             self._model = FeatureEventNet(
                 ckpt["in_dim"], len(ckpt["classes"]), ckpt["hidden"], ckpt["dropout"]
             )
             self._model.load_state_dict(ckpt["state_dict"])
-            self._model.eval()
+            self._model.to(self._device).eval()
             self._sess = None
             self.use_flow = ckpt["use_flow"]
             self.aggregator = ckpt["aggregator"]
@@ -48,7 +50,8 @@ class Detector:
             import torch
 
             with torch.inference_mode():
-                logits = self._model(torch.from_numpy(feats).T[None])[0].T.numpy()
+                x = torch.from_numpy(feats).T[None].to(self._device)
+                logits = self._model(x)[0].T.cpu().numpy()
         else:
             logits = self._sess.run(None, {"features": feats[None].astype(np.float32)})[0][0]
         e = np.exp(logits - logits.max(axis=1, keepdims=True))
@@ -67,8 +70,9 @@ def main() -> None:
     ap.add_argument("--split", choices=["train", "val", "test"], default="test")
     ap.add_argument("--clip-id", required=True)
     ap.add_argument("--weights", type=Path, default=Path("models/detector.pt"))
+    ap.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     a = ap.parse_args()
-    det = Detector(a.weights)
+    det = Detector(a.weights, a.device)
     ann = load_annotations(a.root, a.split)[a.clip_id]
     feats = load_clip(a.root, a.split, a.clip_id, det.use_flow)
     events, _ = det.detect(feats, ann["duration"])

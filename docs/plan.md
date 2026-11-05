@@ -126,7 +126,19 @@ Delete `temporal/`, `PhaseNet`, the `/analyze` phase output and the temporal mic
    `preprocess/` gets a chunking stage ahead of frame sampling, and `/detect_video` returns events
    with timestamps offset to the full video.
 
+4. **GPU is supported for training, extraction and serving.** Device is `auto` (GPU when
+   available, else CPU), overridable with `device: cpu|cuda` in the training config, `--device` on
+   the CLI, and the `DEVICE` environment variable for the service. CPU stays the default install.
+   - Training and `Detector` (PyTorch): `common/device.py::torch_device`; model, batches and class
+     weights move to the device, and outputs return to CPU before numpy.
+   - ONNX serving: `onnx_providers` picks `CUDAExecutionProvider` when `onnxruntime-gpu` is
+     installed, with CPU as fallback. `serving/Dockerfile.gpu` is the GPU image (`--gpus all`).
+   - Preprocessing (Step 1) runs the two ResNet-50 networks on the same device. TVL1 flow needs
+     OpenCV built with CUDA to use the GPU; otherwise it stays on CPU and remains the bottleneck.
+   - `make install-gpu` installs the CUDA torch wheel (pick the index matching your driver).
+   - Benchmarks (Step 4) must report CPU and GPU separately, and say which device each number is on.
+
 ## Constraints
 
-Nothing here has been run. Training and feature extraction need a stronger machine than the
-development box.
+Nothing here has been run, and the GPU paths are untested. Training and feature extraction need a
+stronger machine than the development box.

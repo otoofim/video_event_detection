@@ -1,8 +1,10 @@
 PY ?= .venv/bin/python
 
-.PHONY: install data train-detector train-temporal export bench serve test lint all
+.PHONY: install install-gpu data train-detector train-temporal export bench serve test lint all
 install:
 	uv venv .venv && uv pip install --python $(PY) --extra-index-url https://download.pytorch.org/whl/cpu -e ".[train,serve,dev]"
+install-gpu:  # CUDA build of torch (pick the wheel index matching your driver) + onnxruntime-gpu
+	uv venv .venv && uv pip install --python $(PY) --extra-index-url https://download.pytorch.org/whl/cu124 -e ".[train,serve,dev]" && uv pip install --python $(PY) onnxruntime-gpu
 data:  # annotations + features for all splits (~16 GB)
 	$(PY) -m data.scripts.download_lolv2t --parts annotations train val test
 train-detector:

@@ -18,6 +18,7 @@ import yaml
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
+from common.device import torch_device
 from common.lolv2t import (
     CLASSES,
     available_clips,
@@ -76,10 +77,11 @@ def evaluate(model: FeatureEventNet, ds: ClipDataset, cfg: dict) -> dict:
     model.eval()
     cm = np.zeros((len(CLASSES),) * 2, dtype=np.int64)
     pooled: dict[str, dict[str, float]] = {}
+    device = next(model.parameters()).device
     with torch.inference_mode():
         for i, cid in enumerate(ds.ids):
             x, y = ds[i]
-            probs = torch.softmax(model(x.T[None]), dim=1)[0].T.numpy()  # (T, C)
+            probs = torch.softmax(model(x.T[None].to(device)), dim=1)[0].T.cpu().numpy()  # (T, C)
             cm += confusion_matrix(y.numpy(), probs.argmax(1), len(CLASSES))
             agg = EventAggregator(**cfg["aggregator"], classes=CLASSES)
             events = [
@@ -113,6 +115,8 @@ def main() -> None:
     cfg = yaml.safe_load(a.config.read_text())
     root = Path(cfg["root"])
     torch.manual_seed(cfg["seed"])
+    device = torch_device(cfg.get("device", "auto"))
+    print("device:", device)
 
     splits = {s: pick(root, s, cfg) for s in ("train", "val", "test")}
     ds = {s: ClipDataset(root, s, ids, ann, cfg) for s, (ids, ann) in splits.items()}
@@ -127,12 +131,18 @@ def main() -> None:
     model = FeatureEventNet(feats.shape[1], hidden=cfg["hidden"], dropout=cfg["dropout"])
     model.mean.copy_(feats.mean(0).view(1, -1, 1))
     model.std.copy_(feats.std(0).clamp(min=1e-3).view(1, -1, 1))
+    model.to(device)  # after the buffers are filled
     loss_fn = nn.CrossEntropyLoss(
-        weight=(counts.sum() / (len(counts) * counts)).sqrt(), ignore_index=IGNORE
+        weight=(counts.sum() / (len(counts) * counts)).sqrt().to(device), ignore_index=IGNORE
     )
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
     loader = DataLoader(
-        ds["train"], cfg["batch_size"], shuffle=True, collate_fn=collate, num_workers=2
+        ds["train"],
+        cfg["batch_size"],
+        shuffle=True,
+        collate_fn=collate,
+        num_workers=2,
+        pin_memory=device.type == "cuda",
     )
     best = -1.0
     a.out.parent.mkdir(parents=True, exist_ok=True)
@@ -140,6 +150,7 @@ def main() -> None:
         model.train()
         total, n = 0.0, 0
         for x, y in loader:
+            x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
             opt.zero_grad()
             loss = loss_fn(model(x), y)
             loss.backward()

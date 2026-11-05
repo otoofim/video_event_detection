@@ -33,6 +33,7 @@ Event schema: `{"timestamp": 12.4, "event_type": "kill", "confidence": 0.98}`.
 
 ```bash
 make install         # venv + CPU PyTorch
+make install-gpu     # venv + CUDA PyTorch + onnxruntime-gpu (untested)
 make data            # LoL-V2T annotations + features into data/lolv2t (~16 GB)
 make train-detector  # detection/results.json: step confusion matrix, event-level P/R/F1
 make train-temporal  # temporal/results.json: phase accuracy/macro-F1 vs a no-learning baseline

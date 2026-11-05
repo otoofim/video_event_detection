@@ -6,21 +6,23 @@ Only needs onnxruntime + numpy (no torch), so the service image stays small.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
 
+from common.device import onnx_providers
 from common.lolv2t import step_times
 from common.schema import Event
 from detection.events import events_from_probs
 from temporal.dataset import bin_probs, make_windows
 
 
-def _session(path: Path) -> ort.InferenceSession:
+def _session(path: Path, device: str) -> ort.InferenceSession:
     opts = ort.SessionOptions()
     opts.intra_op_num_threads = 1  # many small calls: avoid oversubscription across workers
-    return ort.InferenceSession(str(path), opts, providers=["CPUExecutionProvider"])
+    return ort.InferenceSession(str(path), opts, providers=onnx_providers(device))
 
 
 def _softmax(logits: np.ndarray) -> np.ndarray:
@@ -31,11 +33,12 @@ def _softmax(logits: np.ndarray) -> np.ndarray:
 class Models:
     """Shared, read-only model sessions."""
 
-    def __init__(self, model_dir: str | Path):
+    def __init__(self, model_dir: str | Path, device: str | None = None):
+        device = device or os.environ.get("DEVICE", "auto")
         d = Path(model_dir)
         self.meta = json.loads((d / "meta.json").read_text())
-        self.det = _session(d / "detector.onnx")
-        self.tmp = _session(d / "temporal.onnx")
+        self.det = _session(d / "detector.onnx", device)
+        self.tmp = _session(d / "temporal.onnx", device)
         self.in_dim = self.meta["detector"]["in_dim"]
         self.classes = self.meta["detector"]["classes"]
         self.window = self.meta["temporal"]["window"]
