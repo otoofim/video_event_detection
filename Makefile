@@ -1,29 +1,30 @@
-PY ?= .venv/bin/python
+# All Python runs through uv: dependencies are pinned in uv.lock (CPU-only PyTorch).
+RUN := uv run
 
-.PHONY: install install-extract data train-detector ablation export bench bench-preprocess serve test lint all
-install:
-	uv venv .venv && uv pip install --python $(PY) --extra-index-url https://download.pytorch.org/whl/cpu -e ".[train,serve,dev]"
-install-extract:  # + video preprocessing (torch backend, TVL1, PySceneDetect)
-	uv pip install --python $(PY) --extra-index-url https://download.pytorch.org/whl/cpu -e ".[extract]"
-	uv pip uninstall --python $(PY) opencv-python  # its cv2 shadows the contrib build (TVL1)
-	uv pip install --python $(PY) --reinstall --no-deps opencv-contrib-python-headless
+.PHONY: install install-extract lock data train-detector ablation export bench bench-preprocess serve test lint all
+install:  # .venv with training + serving deps and the dev group
+	uv sync --extra train --extra serve
+install-extract:  # + video preprocessing (torchvision, OpenCV contrib for TVL1, PySceneDetect)
+	uv sync --all-extras
+lock:  # after editing pyproject.toml
+	uv lock
 data:  # annotations + features for all splits (~16 GB)
-	$(PY) -m data.scripts.download_lolv2t --parts annotations train val test
+	$(RUN) -m data.scripts.download_lolv2t --parts annotations train val test
 train-detector:  # variational U-Net -> models/detector.pt, detection/results.json
-	$(PY) -m detection.train
+	$(RUN) -m detection.train
 ablation:  # same data, no variational parts / the dilated-conv net
-	$(PY) -m detection.train --arch unet --out models/detector_unet.pt --report detection/results_unet.json
-	$(PY) -m detection.train --arch dilated --out models/detector_dilated.pt --report detection/results_dilated.json
+	$(RUN) -m detection.train --arch unet --out models/detector_unet.pt --report detection/results_unet.json
+	$(RUN) -m detection.train --arch dilated --out models/detector_dilated.pt --report detection/results_dilated.json
 export:
-	$(PY) -m serving.onnx_export
+	$(RUN) -m serving.onnx_export
 bench:  # model only: PyTorch vs ONNX Runtime
-	$(PY) -m benchmarks.latency_bench model
+	$(RUN) -m benchmarks.latency_bench model
 bench-preprocess:  # video -> features, per stage (untrained weights, same compute)
-	$(PY) -m benchmarks.latency_bench preprocess
-serve:
-	MODEL_DIR=models $(PY) -m uvicorn serving.app:app --port 8000
+	$(RUN) -m benchmarks.latency_bench preprocess
+serve:  # http://localhost:8000, player at /player
+	MODEL_DIR=models $(RUN) uvicorn serving.app:app --port 8000
 test:
-	$(PY) -m pytest -q
+	$(RUN) pytest -q
 lint:
-	$(PY) -m ruff check . && $(PY) -m ruff format --check .
+	$(RUN) ruff check . && $(RUN) ruff format --check .
 all: data train-detector ablation export

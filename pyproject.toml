@@ -15,12 +15,36 @@ train = ["torch>=2.2", "onnx>=1.16", "pandas>=2.2", "matplotlib>=3.8"]
 serve = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "onnxruntime>=1.17", "python-multipart>=0.0.9"]
 # video preprocessing (torch backend); TVL1 needs the contrib build of OpenCV
 extract = ["torch>=2.2", "torchvision>=0.17", "opencv-contrib-python-headless>=4.8", "scenedetect>=0.6.4"]
-# same backbone code as the dataset; also needs mmcv-full 1.x and torch<2 (see README)
-mmaction = ["mmaction2==0.24.1"]
+# The mmaction2 backend (mmaction2 0.24.1 + mmcv-full 1.x) needs torch<2 and is installed only in
+# serving/Dockerfile.full; it cannot share a lockfile with the torch>=2.2 extras above.
+
+[dependency-groups]
 dev = ["pytest>=8", "ruff>=0.4", "httpx>=0.27", "jupyter-client", "nbformat", "nbclient", "ipykernel"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["common", "detection", "preprocess", "serving", "benchmarks", "data", "data.scripts"]
+
+[tool.setuptools.package-data]
+serving = ["static/*"]
+
+[tool.uv]
+# scenedetect requires opencv-python, whose cv2 shadows opencv-contrib-python-headless (TVL1 lives
+# in contrib); this marker never matches, so uv drops opencv-python from the resolution.
+override-dependencies = ["opencv-python; sys_platform == 'never'"]
+
+# CPU-only PyTorch wheels (the PyPI ones pull in CUDA on Linux)
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+torchvision = [{ index = "pytorch-cpu" }]
 
 [tool.ruff]
 line-length = 100
