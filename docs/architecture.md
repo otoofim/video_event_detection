@@ -136,6 +136,9 @@ are set to 1 intra-op so concurrency comes from worker threads instead of oversu
 - `POST /detect_video`: video -> chunks -> features -> events with full-video timestamps. Needs
   the extractor (`EXTRACTOR_BACKEND`), so it runs only in the full image; the slim image answers
   501.
+- `GET /player`: a single static page (no external assets, so it works offline in both images)
+  that sends the video to `/detect_video`, or loads a saved events JSON, and plays the video with
+  the events on a timeline. The video never leaves the browser except for that upload.
 
 Preprocessing dominates the video path: on a 4-vCPU development box TVL1 flow alone is 92% of
 the cost, about 1.2 s per step, against about 1.4 ms for the model on a whole 110-step clip.

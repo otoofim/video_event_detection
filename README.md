@@ -69,36 +69,41 @@ parts do not help, the results should say so. Details: [docs/architecture.md](do
 
 ## Run it
 
+Dependencies are managed with [uv](https://docs.astral.sh/uv/) and pinned in `uv.lock`
+(CPU-only PyTorch from the PyTorch index). Every `make` target runs through `uv run`.
+
 ```bash
-make install         # venv + CPU PyTorch + serving deps
+make install         # uv sync: .venv with CPU PyTorch, serving deps and the dev group
 make data            # LoL-V2T annotations + features into data/lolv2t (~16 GB)
 make train-detector  # models/detector.pt, detection/results.json
 make ablation        # detection/results_unet.json, detection/results_dilated.json
 make export          # ONNX + meta.json -> models/
 make bench           # model only: PyTorch vs ONNX Runtime
-make serve           # http://localhost:8000
+make serve           # http://localhost:8000 (player at /player)
 make test
 ```
 
 Annotations alone (3 MB) are enough for the tests' data loaders and the EDA notebook:
-`python -m data.scripts.download_lolv2t`.
+`uv run python -m data.scripts.download_lolv2t`. After changing dependencies in
+`pyproject.toml`, run `make lock` (`uv lock`) and commit `uv.lock`. `scenedetect` depends on
+`opencv-python`, whose `cv2` would shadow the contrib build that TVL1 needs, so `pyproject.toml`
+tells uv to leave it out.
 
 ### New video
 
 ```bash
-make install-extract   # torchvision, OpenCV contrib (TVL1), PySceneDetect
-python -m preprocess.extract match.mp4 --out features.npy --backend torch
-python -m detection.infer --features features.npy --duration 23.6 --samples 16
+make install-extract   # uv sync --all-extras: + torchvision, OpenCV contrib (TVL1), PySceneDetect
+uv run python -m preprocess.extract match.mp4 --out features.npy --backend torch
+uv run python -m detection.infer --features features.npy --duration 23.6 --samples 16
 ```
 
 `preprocess.extract` writes one `.npy` per scene chunk plus a `.json` index with each chunk's
 start time. It loads the dataset's mmaction2 checkpoints (downloaded on first use). Two backends:
 
 - `--backend mmaction2` (default) runs mmaction2 0.x's own backbone code, as the dataset did. It
-  needs `pip install -e ".[mmaction]"` plus mmcv-full 1.x, which only has CPU wheels for older
-  PyTorch, e.g. Python 3.10 + `torch==1.13.1` +
-  `pip install mmcv-full==1.7.2 -f https://download.openmmlab.com/mmcv/dist/cpu/torch1.13/index.html`
-  (this is what `serving/Dockerfile.full` does).
+  needs `mmaction2==0.24.1` and mmcv-full 1.x, which only have CPU wheels for older PyTorch
+  (Python 3.10 + `torch==1.13.1`). That cannot share `uv.lock` (torch >= 2.2), so it lives in
+  its own environment: `serving/Dockerfile.full` installs it with `uv pip`.
 - `--backend torch` loads the same weights into torchvision's ResNet-50. It is lighter, but
   **unverified**: only trust it once it passes the acceptance check below.
 
@@ -107,7 +112,7 @@ by default the loader only accepts plain tensors.
 
 **Acceptance check (manual, not run yet):** re-extract dataset clips from their source videos and
 compare with the shipped features; the target is cosine similarity above 0.99 at every step.
-`python -m preprocess.verify --help` describes the inputs. The source videos may have been
+`uv run python -m preprocess.verify --help` describes the inputs. The source videos may have been
 removed or changed since 2020, so the check may only cover some clips.
 
 Known gaps against the dataset: the dataset dropped non-gameplay scenes with a classifier whose
@@ -133,6 +138,12 @@ curl -F file=@match.mp4 "localhost:8000/detect_video?chunking=scene"   # full im
   per-step uncertainty.
 - `POST /detect_video`: a video file. It is chunked and preprocessed, then each chunk is
   detected; timestamps are relative to the start of the full video. The slim image returns 501.
+- `GET /player` (also `/`): a browser player for inference results. Pick a video, run
+  detection (full image) or load a saved events JSON (any image), then play it: events are
+  marked on a timeline over the scene chunks, the current event and its confidence and
+  uncertainty show on the video, and clicking a marker or a table row seeks to it. Results can
+  be saved as JSON. The page has no external assets. Browsers play H.264 MP4 or VP9 WebM; for
+  other codecs the page says so, and detection still runs on the server.
 
 **Latency.** The low-latency figures apply to the model only. Preprocessing (TVL1 flow and two
 ResNet-50 passes per step) dominates `/detect_video`. On a 4-vCPU Xeon development box
@@ -155,7 +166,7 @@ TVL1 on a GPU (or a faster flow method, once verified) is the obvious next step.
 | `common/` | event schema, LoL-V2T loader (safe pickle reader), caption-derived labels |
 | `preprocess/` | video -> features: chunking, sampling, TVL1 flow, TSN networks, CLI, acceptance check |
 | `detection/` | variational U-Net and ablations, training, event aggregation, inference CLI, metrics |
-| `serving/` | FastAPI app, ONNX pipeline, ONNX export, slim and full Dockerfiles |
+| `serving/` | FastAPI app, browser player (`static/player.html`), ONNX pipeline, ONNX export, Dockerfiles |
 | `benchmarks/` | model and preprocessing latency, HTTP load |
 | `data/scripts/` | LoL-V2T downloader |
 | `notebooks/eda.ipynb` | exploratory analysis of the annotations and the keyword rules |

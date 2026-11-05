@@ -4,6 +4,7 @@
 
 POST /detect_features  clip features (.npy, shape (T, D)) -> events (+ uncertainty with samples>1)
 POST /detect_video     a video file -> preprocessing -> events with full-video timestamps
+GET  /player           browser player: plays the video with the detected events on a timeline
 GET  /meta, /health
 
 The detector sees a whole clip at once (its convolutions use context on both sides), so the
@@ -24,10 +25,12 @@ from pathlib import Path
 
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
 
 from serving.pipeline import Models, load_extractor, step_uncertainty
 
 _UNSET = object()
+PLAYER = Path(__file__).parent / "static" / "player.html"
 
 
 def create_app(model_dir: str | None = None, extractor=_UNSET) -> FastAPI:
@@ -52,6 +55,16 @@ def create_app(model_dir: str | None = None, extractor=_UNSET) -> FastAPI:
                 status_code=400, detail=f"expected (T>0, {m.in_dim}) features and duration>0"
             )
         return feats
+
+    @app.get("/", include_in_schema=False)
+    def root():
+        return RedirectResponse("/player")
+
+    @app.get("/player", include_in_schema=False)
+    def player():
+        """Self-contained page (no external assets): pick a video, run /detect_video or load an
+        events JSON, then play it with events on a timeline."""
+        return FileResponse(PLAYER, media_type="text/html")
 
     @app.get("/health")
     def health():

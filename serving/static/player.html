@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Event Player</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1b1f24; --muted: #5d6673; --line: #d9dde3;
+    --accent: #2457c5; --accent-text: #ffffff; --chunk-a: #eceff3; --chunk-b: #e1e5eb;
+    --kill: #c8323c; --objective: #b7790f; --teamfight: #2f7d4f; --active: #fff4cc;
+    --error: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111418; --panel: #1a1e24; --text: #e6e9ee; --muted: #9aa4b2; --line: #2d333c;
+      --accent: #5b8cff; --accent-text: #0b0d10; --chunk-a: #232831; --chunk-b: #2b313b;
+      --kill: #f06a72; --objective: #e3a73a; --teamfight: #4fbf7d; --active: #3a3420;
+      --error: #f97066;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 1040px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 14px; }
+  h1 { font-size: 20px; margin: 0; }
+  #model { color: var(--muted); font-size: 13px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  input, select, button { font: inherit; color: var(--text); }
+  select, input[type=number] {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px;
+  }
+  input[type=number] { width: 84px; }
+  input[type=file] { max-width: 260px; font-size: 13px; }
+  button {
+    border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 6px 14px;
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  #status { margin: 10px 0 0; min-height: 1.4em; color: var(--muted); font-size: 13px; }
+  #status[data-state=error] { color: var(--error); }
+  .stage { position: relative; margin-top: 14px; background: #000; border-radius: 8px; overflow: hidden; }
+  video { display: block; width: 100%; max-height: 62vh; background: #000; }
+  #now {
+    position: absolute; top: 10px; left: 10px; padding: 4px 10px; border-radius: 999px;
+    font-size: 13px; font-weight: 600; color: #fff; background: rgba(0,0,0,.55); display: none;
+  }
+  #timeline {
+    position: relative; height: 34px; margin-top: 10px; border-radius: 6px; overflow: hidden;
+    background: var(--chunk-a); border: 1px solid var(--line); cursor: pointer;
+  }
+  #timeline .chunk { position: absolute; top: 0; bottom: 0; }
+  #timeline .chunk:nth-child(even) { background: var(--chunk-b); }
+  #timeline .mark {
+    position: absolute; top: 6px; bottom: 6px; width: 4px; margin-left: -2px; border-radius: 2px;
+  }
+  #playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); left: 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .legend span::before {
+    content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+    margin-right: 5px; vertical-align: -1px; background: var(--c);
+  }
+  .table-wrap { margin-top: 14px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--bg); }
+  tbody tr.active { background: var(--active); }
+  .type::before {
+    content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    margin-right: 7px; background: var(--c);
+  }
+  .empty { color: var(--muted); padding: 14px 10px; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Event player</h1>
+    <span id="model">loading model info…</span>
+  </header>
+
+  <section class="panel">
+    <div class="controls">
+      <label>Video
+        <input type="file" id="file" accept="video/*">
+      </label>
+      <label>Chunking
+        <select id="chunking">
+          <option value="scene">scene (as the dataset)</option>
+          <option value="fixed">fixed length</option>
+          <option value="none">none (one clip)</option>
+        </select>
+      </label>
+      <label id="chunk_s_label" hidden>Chunk (s)
+        <input type="number" id="chunk_s" value="30" min="0.1" step="0.1">
+      </label>
+      <label>Samples
+        <input type="number" id="samples" value="16" min="1" max="64" step="1">
+      </label>
+      <button class="primary" id="detect" disabled>Detect events</button>
+      <label>…or load events JSON
+        <input type="file" id="events_file" accept=".json,application/json">
+      </label>
+      <button id="download" disabled>Save events JSON</button>
+    </div>
+    <p id="status" data-state="idle">Choose a video to start.</p>
+  </section>
+
+  <div class="stage">
+    <video id="video" controls playsinline preload="metadata"></video>
+    <div id="now"></div>
+  </div>
+  <div id="timeline" title="Click to seek"><div id="playhead"></div></div>
+  <div class="legend">
+    <span style="--c: var(--kill)">kill</span>
+    <span style="--c: var(--objective)">objective</span>
+    <span style="--c: var(--teamfight)">teamfight</span>
+    <span style="--c: var(--chunk-b)">chunks (scenes)</span>
+  </div>
+
+  <div class="table-wrap panel">
+    <table id="events">
+      <thead><tr>
+        <th>Time</th><th>Event</th><th class="num">Confidence</th><th class="num">Uncertainty</th>
+      </tr></thead>
+      <tbody><tr><td class="empty" colspan="4">No events yet.</td></tr></tbody>
+    </table>
+  </div>
+  <p class="note">An event is shown as active for 3 s after its timestamp, the span the labels use.
+    Uncertainty is the spread of the event class's probability over sampled latents
+    (needs samples &gt; 1). Labels come from commentary keywords, so events reflect what the
+    commentary would say, not ground truth.</p>
+</main>
+
+<script>
+(() => {
+  "use strict";
+  const SPAN_S = 3.0;
+  const COLORS = { kill: "var(--kill)", objective: "var(--objective)", teamfight: "var(--teamfight)" };
+  const $ = (id) => document.getElementById(id);
+  const video = $("video"), timeline = $("timeline"), playhead = $("playhead");
+  const tbody = document.querySelector("#events tbody");
+  let file = null, result = null, rows = [], videoInput = false, timer = null;
+
+  function setStatus(text, state) {
+    const s = $("status");
+    s.textContent = text;
+    s.dataset.state = state;
+  }
+
+  function fmt(t) {
+    const m = Math.floor(t / 60), s = t - 60 * m;
+    return `${m}:${s.toFixed(1).padStart(4, "0")}`;
+  }
+
+  function duration() {
+    if (Number.isFinite(video.duration) && video.duration > 0) return video.duration;
+    if (!result) return 0;
+    const ends = (result.chunks || []).map((c) => c.start + c.duration);
+    const evs = result.events.map((e) => e.timestamp + SPAN_S);
+    return Math.max(1, ...ends, ...evs);
+  }
+
+  function updateDetectButton() {
+    $("detect").disabled = !(file && videoInput);
+  }
+
+  fetch("/meta").then((r) => r.json()).then((m) => {
+    const d = m.detector || {};
+    videoInput = Boolean(m.video_input);
+    $("model").textContent = `model: ${d.arch || "?"}` +
+      (d.variational ? " (variational)" : "") +
+      (videoInput ? " · video input on" : " · video input off (features-only image)");
+    if (!d.variational) $("samples").value = 1;
+    updateDetectButton();
+  }).catch(() => { $("model").textContent = "model info unavailable"; });
+
+  $("chunking").addEventListener("change", (e) => {
+    $("chunk_s_label").hidden = e.target.value !== "fixed";
+  });
+
+  $("file").addEventListener("change", (e) => {
+    file = e.target.files[0] || null;
+    if (!file) return;
+    if (video.src) URL.revokeObjectURL(video.src);
+    video.src = URL.createObjectURL(file);
+    setStatus(videoInput ? `${file.name} loaded. Run detection, or load an events JSON for it.`
+      : `${file.name} loaded. This server has no extractor: load an events JSON for it.`, "idle");
+    updateDetectButton();
+  });
+
+  $("detect").addEventListener("click", async () => {
+    if (!file) return;
+    const params = new URLSearchParams({
+      chunking: $("chunking").value, chunk_s: $("chunk_s").value, samples: $("samples").value,
+    });
+    const body = new FormData();
+    body.append("file", file, file.name);
+    $("detect").disabled = true;
+    const t0 = performance.now();
+    clearInterval(timer);
+    timer = setInterval(() => setStatus(
+      `Preprocessing and detecting… ${((performance.now() - t0) / 1000).toFixed(0)} s ` +
+      "(optical flow is slow on CPU: expect minutes per minute of video)", "running"), 500);
+    setStatus("Uploading…", "running");
+    try {
+      const r = await fetch(`/detect_video?${params}`, { method: "POST", body });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.detail ? JSON.stringify(data.detail) : `HTTP ${r.status}`);
+      clearInterval(timer);
+      show(data);
+      const lat = data.latency_ms || {};
+      setStatus(`${data.events.length} events in ${data.chunks.length} chunks · ` +
+        `preprocessing ${((lat.preprocess_ms || 0) / 1000).toFixed(1)} s · ` +
+        `model ${(lat.model_ms || 0).toFixed(0)} ms`, "done");
+    } catch (err) {
+      clearInterval(timer);
+      setStatus(`Detection failed: ${err.message}`, "error");
+    } finally {
+      updateDetectButton();
+    }
+  });
+
+  $("events_file").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try {
+      const data = JSON.parse(await f.text());
+      const norm = Array.isArray(data) ? { events: data, chunks: [] } : data;
+      if (!Array.isArray(norm.events)) throw new Error("no 'events' list");
+      show({ chunks: [], ...norm });
+      setStatus(`${norm.events.length} events loaded from ${f.name}.`, "done");
+    } catch (err) {
+      setStatus(`Could not read ${f.name}: ${err.message}`, "error");
+    }
+  });
+
+  $("download").addEventListener("click", () => {
+    if (!result) return;
+    const blob = new Blob([JSON.stringify(result, null, 1)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${file ? file.name.replace(/\.[^.]+$/, "") : "events"}.events.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+
+  function show(data) {
+    result = {
+      events: [...data.events].sort((a, b) => a.timestamp - b.timestamp),
+      chunks: data.chunks || [],
+      latency_ms: data.latency_ms,
+    };
+    $("download").disabled = false;
+    render();
+  }
+
+  function render() {
+    timeline.querySelectorAll(".chunk, .mark").forEach((n) => n.remove());
+    tbody.replaceChildren();
+    rows = [];
+    if (!result) return;
+    const total = duration();
+    const pct = (t) => `${Math.min(100, Math.max(0, (100 * t) / total))}%`;
+    for (const c of result.chunks) {
+      const d = document.createElement("div");
+      d.className = "chunk";
+      d.style.left = pct(c.start);
+      d.style.width = pct(c.duration);
+      d.title = `chunk ${fmt(c.start)}–${fmt(c.start + c.duration)}, ${c.steps} steps`;
+      timeline.insertBefore(d, playhead);
+    }
+    if (!result.events.length) {
+      const tr = tbody.insertRow();
+      const td = tr.insertCell();
+      td.colSpan = 4;
+      td.className = "empty";
+      td.textContent = "No events detected.";
+      return;
+    }
+    for (const e of result.events) {
+      const color = COLORS[e.event_type] || "var(--muted)";
+      const m = document.createElement("div");
+      m.className = "mark";
+      m.style.left = pct(e.timestamp);
+      m.style.background = color;
+      m.title = `${e.event_type} at ${fmt(e.timestamp)} (${(100 * e.confidence).toFixed(0)}%)`;
+      m.addEventListener("click", (ev) => { ev.stopPropagation(); seek(e.timestamp); });
+      timeline.insertBefore(m, playhead);
+
+      const tr = tbody.insertRow();
+      tr.insertCell().textContent = fmt(e.timestamp);
+      const type = tr.insertCell();
+      type.className = "type";
+      type.style.setProperty("--c", color);
+      type.textContent = e.event_type;
+      const conf = tr.insertCell();
+      conf.className = "num";
+      conf.textContent = `${(100 * e.confidence).toFixed(0)}%`;
+      const unc = tr.insertCell();
+      unc.className = "num";
+      unc.textContent = e.uncertainty == null ? "–" : `±${e.uncertainty.toFixed(3)}`;
+      tr.addEventListener("click", () => seek(e.timestamp));
+      rows.push(tr);
+    }
+    tick();
+  }
+
+  function seek(t) {
+    if (!video.src) return;
+    video.currentTime = t;
+    video.play().catch(() => {});
+  }
+
+  function activeIndex(t) {
+    let idx = -1;
+    result.events.forEach((e, i) => { if (e.timestamp <= t && t < e.timestamp + SPAN_S) idx = i; });
+    return idx;
+  }
+
+  function tick() {
+    const t = video.currentTime || 0, total = duration();
+    playhead.style.left = total ? `${Math.min(100, (100 * t) / total)}%` : "0";
+    const badge = $("now");
+    if (!result) { badge.style.display = "none"; return; }
+    const i = activeIndex(t);
+    rows.forEach((r, k) => r.classList.toggle("active", k === i));
+    if (i < 0) { badge.style.display = "none"; return; }
+    const e = result.events[i];
+    badge.style.display = "block";
+    badge.style.background = COLORS[e.event_type] || "rgba(0,0,0,.55)";
+    badge.textContent = `${e.event_type} · ${(100 * e.confidence).toFixed(0)}%` +
+      (e.uncertainty == null ? "" : ` ± ${e.uncertainty.toFixed(3)}`);
+  }
+
+  timeline.addEventListener("click", (ev) => {
+    const r = timeline.getBoundingClientRect();
+    seek(((ev.clientX - r.left) / r.width) * duration());
+  });
+  video.addEventListener("loadedmetadata", render);
+  video.addEventListener("error", () => {
+    if (!file) return;
+    setStatus(`This browser cannot play ${file.name} (codec not supported). Detection still ` +
+      "works on the server; to watch it, convert to H.264 MP4 or VP9 WebM (e.g. with ffmpeg).",
+      "error");
+  });
+  video.addEventListener("timeupdate", tick);
+  video.addEventListener("seeked", tick);
+  (function loop() { if (!video.paused) tick(); requestAnimationFrame(loop); })();
+})();
+</script>
+</body>
+</html>
