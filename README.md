@@ -74,6 +74,7 @@ Dependencies are managed with [uv](https://docs.astral.sh/uv/) and pinned in `uv
 
 ```bash
 make install         # uv sync: .venv with CPU PyTorch, serving deps and the dev group
+make install-gpu     # then CUDA PyTorch + onnxruntime-gpu (untested); run with RUN="uv run --no-sync"
 make data            # LoL-V2T annotations + features into data/lolv2t (~16 GB)
 make train-detector  # models/detector.pt, detection/results.json
 make ablation        # detection/results_unet.json, detection/results_dilated.json

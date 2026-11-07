@@ -22,6 +22,7 @@ import yaml
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
+from common.device import torch_device
 from common.lolv2t import (
     CLASSES,
     available_clips,
@@ -96,15 +97,17 @@ def evaluate(model: nn.Module, ds: ClipDataset, cfg: dict) -> dict:
     pooled: dict[str, dict[str, float]] = {}
     unc = {"correct": [], "wrong": []}
     n_mc = cfg.get("mc_samples", 0) if getattr(model, "variational", False) else 0
+    device = next(model.parameters()).device
     with torch.inference_mode():
         for i, cid in enumerate(ds.ids):
             x, y = ds[i]
-            probs = torch.softmax(_logits(model, x.T[None]), dim=1)[0].T.numpy()  # (T, C)
+            xb = x.T[None].to(device)
+            probs = torch.softmax(_logits(model, xb), dim=1)[0].T.cpu().numpy()  # (T, C)
             pred = probs.argmax(1)
             cm += confusion_matrix(y.numpy(), pred, len(CLASSES))
             if n_mc:
-                _, std = mc_probs(model, x.T[None], n_mc)
-                s = std[0].T.numpy()[np.arange(len(pred)), pred]
+                _, std = mc_probs(model, xb, n_mc)
+                s = std[0].T.cpu().numpy()[np.arange(len(pred)), pred]
                 ok = pred == y.numpy()
                 unc["correct"] += s[ok].tolist()
                 unc["wrong"] += s[~ok].tolist()
@@ -149,6 +152,8 @@ def main() -> None:
         cfg["arch"] = a.arch
     root = Path(cfg["root"])
     torch.manual_seed(cfg["seed"])
+    device = torch_device(cfg.get("device", "auto"))
+    print("device:", device)
 
     splits = {s: pick(root, s, cfg) for s in ("train", "val", "test")}
     ds = {s: ClipDataset(root, s, ids, ann, cfg) for s, (ids, ann) in splits.items()}
@@ -164,6 +169,7 @@ def main() -> None:
     model = build_model(cfg["arch"], feats.shape[1], **kwargs)
     model.mean.copy_(feats.mean(0).view(1, -1, 1))
     model.std.copy_(feats.std(0).clamp(min=1e-3).view(1, -1, 1))
+    model.to(device)  # after the buffers are filled
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
     loader = DataLoader(
         ds["train"],
@@ -171,8 +177,9 @@ def main() -> None:
         shuffle=True,
         collate_fn=collate,
         num_workers=cfg["num_workers"],
+        pin_memory=device.type == "cuda",
     )
-    weight = (counts.sum() / (len(counts) * counts)).sqrt()
+    weight = (counts.sum() / (len(counts) * counts)).sqrt().to(device)
     warmup = cfg["beta_warmup_epochs"] * len(loader)
     best, step = -1.0, 0
     a.out.parent.mkdir(parents=True, exist_ok=True)
@@ -181,6 +188,7 @@ def main() -> None:
         sums: dict[str, float] = {}
         n = 0
         for x, y in loader:
+            x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
             opt.zero_grad()
             beta = beta_at(step, warmup, cfg["beta"])
             loss, parts = compute_loss(model, x, y, weight, cfg["lam"], beta)

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
+from common.device import onnx_providers, torch_device
 from common.lolv2t import load_annotations, load_clip, step_times
 from common.schema import Event
 from detection.events import events_from_probs
@@ -27,13 +28,13 @@ def _softmax(logits: np.ndarray) -> np.ndarray:
 class Detector:
     """Per-step classifier over a PyTorch checkpoint (.pt) or an exported ONNX file (.onnx)."""
 
-    def __init__(self, weights: str | Path, seed: int = 0):
+    def __init__(self, weights: str | Path, seed: int = 0, device: str = "auto"):
         self.weights = Path(weights)
         self._rng = np.random.default_rng(seed)
         if self.weights.suffix == ".onnx":
             import onnxruntime as ort
 
-            self._sess = ort.InferenceSession(str(self.weights), providers=["CPUExecutionProvider"])
+            self._sess = ort.InferenceSession(str(self.weights), providers=onnx_providers(device))
             self._model = None
             meta = json.loads((self.weights.parent / "meta.json").read_text())["detector"]
             self.variational, self.factor, self.latent = (
@@ -45,7 +46,9 @@ class Detector:
         else:
             from serving.onnx_export import load_detector
 
+            self._device = torch_device(device)
             self._model, ckpt = load_detector(self.weights)
+            self._model.to(self._device)
             self._sess = None
             self.variational = bool(getattr(self._model, "variational", False))
             self.factor = getattr(self._model, "factor", 1)
@@ -61,8 +64,9 @@ class Detector:
             from detection.model import StepMajor
 
             with torch.inference_mode():
-                n = None if noise is None else torch.from_numpy(noise)
-                return StepMajor(self._model)(torch.from_numpy(x), n).numpy()
+                n = None if noise is None else torch.from_numpy(noise).to(self._device)
+                out = StepMajor(self._model)(torch.from_numpy(x).to(self._device), n)
+                return out.cpu().numpy()
         feed = {"features": x}
         if self.variational:
             feed["noise"] = noise
@@ -108,8 +112,9 @@ def main() -> None:
     ap.add_argument("--duration", type=float, help="clip duration in seconds, with --features")
     ap.add_argument("--weights", type=Path, default=Path("models/detector.pt"))
     ap.add_argument("--samples", type=int, default=1, help="z samples; >1 adds uncertainty")
+    ap.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     a = ap.parse_args()
-    det = Detector(a.weights)
+    det = Detector(a.weights, device=a.device)
     if a.features is not None:
         if a.duration is None:
             ap.error("--features needs --duration")

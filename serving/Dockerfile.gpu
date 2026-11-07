@@ -1,0 +1,14 @@
+# GPU inference image: onnxruntime-gpu on a CUDA runtime base. Run with `docker run --gpus all`.
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+RUN pip install --no-cache-dir numpy pydantic pyyaml fastapi "uvicorn[standard]" \
+    onnxruntime-gpu python-multipart
+COPY common ./common
+COPY detection/__init__.py detection/events.py ./detection/
+COPY serving ./serving
+ENV MODEL_DIR=/app/models DEVICE=auto PYTHONUNBUFFERED=1
+EXPOSE 8000
+HEALTHCHECK CMD python3 -c "import urllib.request as u; u.urlopen('http://localhost:8000/health')"
+CMD ["python3", "-m", "uvicorn", "serving.app:app", "--host", "0.0.0.0", "--port", "8000"]

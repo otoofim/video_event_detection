@@ -7,20 +7,22 @@ Needs only onnxruntime + numpy (no torch), so the slim service image stays small
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
 
+from common.device import onnx_providers
 from common.lolv2t import step_times
 from common.schema import Event
 from detection.events import events_from_probs
 
 
-def _session(path: Path) -> ort.InferenceSession:
+def _session(path: Path, device: str) -> ort.InferenceSession:
     opts = ort.SessionOptions()
     opts.intra_op_num_threads = 1  # many small calls: avoid oversubscription across workers
-    return ort.InferenceSession(str(path), opts, providers=["CPUExecutionProvider"])
+    return ort.InferenceSession(str(path), opts, providers=onnx_providers(device))
 
 
 def _softmax(logits: np.ndarray) -> np.ndarray:
@@ -36,11 +38,14 @@ def step_uncertainty(mean: np.ndarray, std: np.ndarray) -> np.ndarray:
 class Models:
     """Shared, read-only detector session (+ an optional video feature extractor)."""
 
-    def __init__(self, model_dir: str | Path, extractor=None, seed: int = 0):
+    def __init__(
+        self, model_dir: str | Path, extractor=None, seed: int = 0, device: str | None = None
+    ):
+        device = device or os.environ.get("DEVICE", "auto")
         d = Path(model_dir)
         self.meta = json.loads((d / "meta.json").read_text())
         m = self.meta["detector"]
-        self.det = _session(d / "detector.onnx")
+        self.det = _session(d / "detector.onnx", device)
         self.in_dim, self.classes = m["in_dim"], m["classes"]
         self.variational, self.factor, self.latent = m["variational"], m["factor"], m["latent"]
         self.extractor = extractor
@@ -115,10 +120,9 @@ def load_extractor():
 
     ``EXTRACTOR_BACKEND`` (``mmaction2`` | ``torch``), ``RGB_CHECKPOINT``, ``FLOW_CHECKPOINT``
     (paths or URLs; default the dataset's checkpoints), ``TRUST_CHECKPOINT=1`` to allow full
-    unpickling. Leave ``EXTRACTOR_BACKEND`` unset for a features-only service.
+    unpickling. ``DEVICE`` (``auto`` | ``cpu`` | ``cuda``) applies to the models and the extractor.
+    Leave ``EXTRACTOR_BACKEND`` unset for a features-only service.
     """
-    import os
-
     backend = os.environ.get("EXTRACTOR_BACKEND")
     if not backend:
         return None
@@ -130,4 +134,5 @@ def load_extractor():
         flow=os.environ.get("FLOW_CHECKPOINT", CHECKPOINTS["flow"]),
         backend=backend,
         trust=os.environ.get("TRUST_CHECKPOINT") == "1",
+        device=os.environ.get("DEVICE", "auto"),
     )

@@ -1,9 +1,14 @@
 # All Python runs through uv: dependencies are pinned in uv.lock (CPU-only PyTorch).
 RUN := uv run
 
-.PHONY: install install-extract lock data train-detector ablation export bench bench-preprocess serve test lint all
+.PHONY: install install-gpu install-extract lock data train-detector ablation export bench bench-preprocess serve test lint all
 install:  # .venv with training + serving deps and the dev group
 	uv sync --extra train --extra serve
+install-gpu:  # CUDA torch + onnxruntime-gpu over the locked CPU env; then run targets with RUN="uv run --no-sync"
+	uv sync --extra train --extra serve
+	uv pip uninstall onnxruntime
+	uv pip install --reinstall --index-url https://download.pytorch.org/whl/cu124 torch torchvision
+	uv pip install onnxruntime-gpu
 install-extract:  # + video preprocessing (torchvision, OpenCV contrib for TVL1, PySceneDetect)
 	uv sync --all-extras
 lock:  # after editing pyproject.toml

@@ -18,6 +18,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from common.device import torch_device
 from preprocess.chunking import fixed_chunks, scene_chunks
 from preprocess.config import CHECKPOINTS, ExtractConfig
 from preprocess.flow import flow_input, jpeg_roundtrip, quantize_flow, tvl1
@@ -52,8 +53,16 @@ def iter_frames(path: str | Path, width: int, height: int) -> Iterator[np.ndarra
 class Extractor:
     """RGB and flow TSN networks plus the dataset's frame pipeline."""
 
-    def __init__(self, cfg: ExtractConfig, rgb_net: torch.nn.Module, flow_net: torch.nn.Module):
-        self.cfg, self.rgb_net, self.flow_net = cfg, rgb_net.eval(), flow_net.eval()
+    def __init__(
+        self,
+        cfg: ExtractConfig,
+        rgb_net: torch.nn.Module,
+        flow_net: torch.nn.Module,
+        device: str = "cpu",
+    ):
+        self.cfg, self.device = cfg, torch_device(device)
+        self.rgb_net = rgb_net.to(self.device).eval()
+        self.flow_net = flow_net.to(self.device).eval()
 
     @classmethod
     def from_checkpoints(
@@ -63,6 +72,7 @@ class Extractor:
         flow: str = CHECKPOINTS["flow"],
         backend: str = "mmaction2",
         trust: bool = False,
+        device: str = "auto",
     ) -> Extractor:
         from preprocess.networks import load_network
 
@@ -71,6 +81,7 @@ class Extractor:
             cfg,
             load_network(rgb, 3 * cfg.rgb_clip_len, backend, trust),
             load_network(flow, 2 * cfg.flow_clip_len, backend, trust),
+            device,
         )
 
     @classmethod
@@ -121,7 +132,10 @@ class Extractor:
     @torch.inference_mode()
     def _run(self, net: torch.nn.Module, x: np.ndarray) -> np.ndarray:
         bs = self.cfg.batch_size
-        parts = [net(torch.from_numpy(x[i : i + bs])).numpy() for i in range(0, len(x), bs)]
+        parts = [
+            net(torch.from_numpy(x[i : i + bs]).to(self.device)).cpu().numpy()
+            for i in range(0, len(x), bs)
+        ]
         return np.concatenate(parts).astype(np.float32)
 
     def features(self, frames: np.ndarray, fps: float) -> dict:
@@ -215,12 +229,17 @@ def main() -> None:
     ap.add_argument("--backend", choices=["mmaction2", "torch"], default="mmaction2")
     ap.add_argument("--rgb-checkpoint", default=CHECKPOINTS["rgb"])
     ap.add_argument("--flow-checkpoint", default=CHECKPOINTS["flow"])
+    ap.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     ap.add_argument(
         "--trust-checkpoint", action="store_true", help="allow full unpickling of checkpoints"
     )
     a = ap.parse_args()
     ex = Extractor.from_checkpoints(
-        rgb=a.rgb_checkpoint, flow=a.flow_checkpoint, backend=a.backend, trust=a.trust_checkpoint
+        rgb=a.rgb_checkpoint,
+        flow=a.flow_checkpoint,
+        backend=a.backend,
+        trust=a.trust_checkpoint,
+        device=a.device,
     )
     chunks = ex.extract_video(a.video, a.chunking, a.chunk_s)
     print(f"{len(chunks)} chunk(s) -> {save(chunks, a.out)}")

@@ -16,6 +16,7 @@ num_workers: 2               # DataLoader workers (features load lazily from dis
 lr: 0.001
 weight_decay: 0.0001
 seed: 0
+device: auto               # auto = GPU when available, else cpu; or cpu / cuda
 norm_clips: 300              # clips used for feature mean/std and class weights
 max_clips: null              # cap per split for smoke runs (null = all available)
 label_span_s: 3.0            # an event labels the next N seconds of steps
