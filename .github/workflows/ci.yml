@@ -5,11 +5,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: {python-version: "3.12", cache: pip}
-      - name: Install (CPU torch)
-        run: |
-          pip install --extra-index-url https://download.pytorch.org/whl/cpu -e ".[train,serve,dev]"
-      - run: ruff check .
-      - run: ruff format --check .
-      - run: pytest -q
+      - uses: astral-sh/setup-uv@v6
+        with: {enable-cache: true}
+      - name: Install (locked, CPU torch, all extras + dev group)
+        run: uv sync --locked --all-extras
+      - run: uv run python -c "import cv2; assert hasattr(cv2.optflow, 'DualTVL1OpticalFlow_create')"
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest -q

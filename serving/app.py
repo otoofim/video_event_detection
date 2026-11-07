@@ -2,13 +2,15 @@
 
     uvicorn serving.app:app --port 8000          # MODEL_DIR=models by default
 
-POST /detect_features  clip features (.npy, shape (T, D)) -> events
-POST /analyze          clip features -> events + play phase per window (full pipeline)
+POST /detect_features  clip features (.npy, shape (T, D)) -> events (+ uncertainty with samples>1)
+POST /detect_video     a video file -> preprocessing -> events with full-video timestamps
+GET  /player           browser player: plays the video with the detected events on a timeline
 GET  /meta, /health
 
 The detector sees a whole clip at once (its convolutions use context on both sides), so the
-service works on clips, not frame by frame; concurrent /analyze calls share a micro-batcher for
-the fixed-length temporal windows.
+service works on clips, not frame by frame. ``/detect_video`` needs the feature extractor
+(``EXTRACTOR_BACKEND``, full image only) and is dominated by preprocessing: optical flow and two
+ResNet-50 passes take seconds per clip on CPU.
 """
 
 from __future__ import annotations
@@ -16,26 +18,29 @@ from __future__ import annotations
 import asyncio
 import io
 import os
+import tempfile
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
 
-from serving.batching import MicroBatcher
-from serving.pipeline import Models
+from serving.pipeline import Models, load_extractor, step_uncertainty
+
+_UNSET = object()
+PLAYER = Path(__file__).parent / "static" / "player.html"
 
 
-def create_app(
-    model_dir: str | None = None, max_batch: int = 16, max_wait_ms: float = 3.0
-) -> FastAPI:
+def create_app(model_dir: str | None = None, extractor=_UNSET) -> FastAPI:
+    """``extractor``: a ``preprocess.extract.Extractor``; by default read from the environment."""
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.models = Models(model_dir or os.environ.get("MODEL_DIR", "models"))
-        app.state.tmp_batcher = MicroBatcher(app.state.models.phase_probs, max_batch, max_wait_ms)
-        await app.state.tmp_batcher.start()
+        ex = load_extractor() if extractor is _UNSET else extractor
+        app.state.models = Models(model_dir or os.environ.get("MODEL_DIR", "models"), ex)
         yield
-        await app.state.tmp_batcher.stop()
 
     app = FastAPI(title="video_event_detection", lifespan=lifespan)
 
@@ -51,45 +56,68 @@ def create_app(
             )
         return feats
 
+    @app.get("/", include_in_schema=False)
+    def root():
+        return RedirectResponse("/player")
+
+    @app.get("/player", include_in_schema=False)
+    def player():
+        """Self-contained page (no external assets): pick a video, run /detect_video or load an
+        events JSON, then play it with events on a timeline."""
+        return FileResponse(PLAYER, media_type="text/html")
+
     @app.get("/health")
     def health():
         return {"status": "ok"}
 
     @app.get("/meta")
     def meta():
-        return app.state.models.meta
+        return {**app.state.models.meta, "video_input": app.state.models.extractor is not None}
 
     @app.post("/detect_features")
-    async def detect_features(file: UploadFile = File(...), duration: float = 1.0):
+    async def detect_features(
+        file: UploadFile = File(...),
+        duration: float = 1.0,
+        samples: int = Query(1, ge=1, le=64, description="z samples; >1 adds uncertainty"),
+    ):
         feats = await _read_features(file, duration)
         t0 = time.perf_counter()
-        events, _ = await asyncio.get_running_loop().run_in_executor(
-            None, app.state.models.detect, feats, duration
+        events, mean, std = await asyncio.get_running_loop().run_in_executor(
+            None, app.state.models.detect, feats, duration, samples
         )
+        unc = None if std is None else step_uncertainty(mean, std).round(4).tolist()
         return {
             "events": [e.model_dump() for e in events],
+            "uncertainty": unc,
             "latency_ms": (time.perf_counter() - t0) * 1000,
         }
 
-    @app.post("/analyze")
-    async def analyze(file: UploadFile = File(...), duration: float = 1.0):
-        feats = await _read_features(file, duration)
+    @app.post("/detect_video")
+    async def detect_video(
+        file: UploadFile = File(...),
+        chunking: str = Query("scene", pattern="^(scene|fixed|none)$"),
+        chunk_s: float = Query(30.0, gt=0),
+        samples: int = Query(1, ge=1, le=64),
+    ):
         m = app.state.models
-        t0 = time.perf_counter()
-        loop = asyncio.get_running_loop()
-        events, probs = await loop.run_in_executor(None, m.detect, feats, duration)
-        windows, starts = m.windows(probs, duration)
-        phases = []
-        if len(windows):
-            scores = np.stack(
-                await asyncio.gather(*(app.state.tmp_batcher.submit(w) for w in windows))
+        if m.extractor is None:
+            raise HTTPException(
+                status_code=501, detail="video input needs the full image (EXTRACTOR_BACKEND)"
             )
-            phases = m.phases(scores, starts)
-        return {
-            "events": [e.model_dump() for e in events],
-            "phases": phases,
-            "latency_ms": (time.perf_counter() - t0) * 1000,
-        }
+        suffix = Path(file.filename or "video.mp4").suffix or ".mp4"
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / f"upload{suffix}"
+            path.write_bytes(await file.read())
+            try:
+                out = await asyncio.get_running_loop().run_in_executor(
+                    None, m.detect_video, path, chunking, chunk_s, samples
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=f"cannot read video: {exc}") from exc
+            except ImportError as exc:  # e.g. scene chunking without scenedetect
+                raise HTTPException(status_code=501, detail=str(exc)) from exc
+        out["events"] = [e.model_dump() for e in out["events"]]
+        return out
 
     return app
 
