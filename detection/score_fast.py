@@ -20,7 +20,7 @@ import yaml
 from common.device import torch_device
 from detection.gpu_data import EvalSet, GpuSplit
 from detection.model import build_model
-from detection.weight_search import evaluate
+from detection.weight_search import evaluate, rank_metrics
 
 SPLITS = ["train", "val", "test"]
 
@@ -74,12 +74,15 @@ def main() -> None:
         print(f"\n===== {split} ({es.n} clips) =====", flush=True)
         for name, (model, agg) in models.items():
             r = results[name][split] = evaluate(model, es, agg, tol)
+            r["rank"] = rank_metrics(model, es)
             st = r["step"]
             print(
                 f"{name:14s} conf {agg['min_conf']:.1f}  loss {r['ce']:.3f}  acc {st['accuracy']:.3f}"
                 f"  step P {st['macro_precision']:.3f} R {st['macro_recall']:.3f}"
                 f" F1 {st['macro_f1']:.3f}  event P {r['mean_event_precision']:.3f}"
-                f" R {r['mean_event_recall']:.3f} F1 {r['mean_event_f1']:.3f}",
+                f" R {r['mean_event_recall']:.3f} F1 {r['mean_event_f1']:.3f}"
+                f"  AUROC {r['rank']['mean_auroc']:.3f} AP lift "
+                f"{r['rank']['mean_ap'] / r['rank']['mean_base_rate']:.2f}x",
                 flush=True,
             )
             if a.matrices:

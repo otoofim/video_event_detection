@@ -185,6 +185,34 @@ def evaluate(model, cs: ClipSet, agg: dict, tol: float) -> dict:
     }
 
 
+@torch.no_grad()
+def rank_metrics(model, cs: ClipSet) -> dict:
+    """One-vs-rest AUROC and average precision per event class, from the step probabilities."""
+    model.eval()
+    probs, ys = [], []
+    for _, x, y in cs.groups:
+        out = model(x.float())
+        logits = out["logits"] if isinstance(out, dict) else out
+        probs.append(torch.softmax(logits, 1).permute(0, 2, 1).reshape(-1, NC))
+        ys.append(y.reshape(-1))
+    p, y = torch.cat(probs), torch.cat(ys)
+    res = {"auroc": {}, "ap": {}, "base_rate": {}}
+    for k in range(1, NC):
+        pos = (y == k).float()[torch.argsort(p[:, k], descending=True)]
+        tp, fp = torch.cumsum(pos, 0), torch.cumsum(1 - pos, 0)
+        n_pos, n_neg = pos.sum(), (1 - pos).sum()
+        zero = torch.zeros(1, device=p.device)
+        auc = torch.trapezoid(torch.cat([zero, tp / n_pos]), torch.cat([zero, fp / n_neg]))
+        ap = (pos * tp / torch.arange(1, len(pos) + 1, device=p.device)).sum() / n_pos
+        res["auroc"][CLASSES[k]] = float(auc)
+        res["ap"][CLASSES[k]] = float(ap)
+        res["base_rate"][CLASSES[k]] = float(n_pos / len(pos))
+    res["mean_auroc"] = float(np.mean(list(res["auroc"].values())))
+    res["mean_ap"] = float(np.mean(list(res["ap"].values())))
+    res["mean_base_rate"] = float(np.mean(list(res["base_rate"].values())))
+    return res
+
+
 def better(new: dict, cur: dict) -> bool:
     if new["mean_event_f1"] > cur["mean_event_f1"] + 1e-9:
         return True
