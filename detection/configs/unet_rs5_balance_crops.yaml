@@ -1,0 +1,41 @@
+# +6 s labels; event-centred random crops (40-100 steps, 70% contain an event) and per-batch
+# background downsampling to the mean event-class count; no class weights.
+root: data/lolv2t
+use_flow: true
+arch: unet
+model:
+  unet:
+    hidden: 16
+    levels: 2
+    dropout: 0.2
+    in_dropout: 0.5
+    noise_std: 0.3
+  dilated:
+    hidden: 256
+    dropout: 0.3
+lam: 1.0
+beta: 0.1
+beta_warmup_epochs: 5
+epochs: 40
+batch_size: 16
+lr: 0.001
+lr_min_frac: 0.05
+weight_decay: 0.05
+label_smoothing: 0.05
+grad_clip: 1.0
+seed: 0
+device: auto
+norm_clips: 300
+label_span_s: 3.0
+tolerance_s: 3.0
+aggregator:
+  min_run: 2
+  min_conf: 0.5
+class_weight_power: 0.0
+select_metric: auroc
+label_offset_s: 6.0
+bg_keep: balance
+crop:
+  min_len: 40
+  max_len: 100
+  event_p: 0.7
