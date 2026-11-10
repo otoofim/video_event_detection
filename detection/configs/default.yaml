@@ -10,7 +10,7 @@ lam: 1.0                     # weight of the reconstruction MSE (vunet only)
 beta: 0.1                    # final weight of the KL term (vunet only)
 beta_warmup_epochs: 5        # beta ramps linearly from 0 over these epochs
 mc_samples: 16               # z samples for the uncertainty report (vunet only)
-epochs: 15
+epochs: 100
 batch_size: 16
 num_workers: 2               # DataLoader workers (features load lazily from disk)
 lr: 0.001

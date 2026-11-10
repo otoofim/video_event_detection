@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -21,6 +22,7 @@ import torch
 import yaml
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.tensorboard import SummaryWriter
 
 from common.device import torch_device
 from common.lolv2t import (
@@ -140,16 +142,33 @@ def evaluate(model: nn.Module, ds: ClipDataset, cfg: dict) -> dict:
     return report
 
 
+def log_eval(tb: SummaryWriter, split: str, report: dict, step: int) -> None:
+    for etype, m in report["event"].items():
+        for k in ("precision", "recall", "f1"):
+            tb.add_scalar(f"{split}/event_{k}/{etype}", m[k], step)
+    for cls, m in report["step"].items():
+        tb.add_scalar(f"{split}/step_f1/{cls}", m["f1"], step)
+    for k, v in report.get("uncertainty", {}).items():
+        if k.startswith("mean_std_") and v is not None:
+            tb.add_scalar(f"{split}/uncertainty/{k}", v, step)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=Path, default=Path("detection/configs/default.yaml"))
     ap.add_argument("--out", type=Path, default=Path("models/detector.pt"))
     ap.add_argument("--report", type=Path, default=Path("detection/results.json"))
     ap.add_argument("--arch", choices=["vunet", "unet", "dilated"], help="override config arch")
+    ap.add_argument("--logdir", type=Path, default=Path("runs"), help="TensorBoard runs directory")
+    ap.add_argument("--run-name", help="subdirectory of --logdir (default: <arch>-<timestamp>)")
     a = ap.parse_args()
     cfg = yaml.safe_load(a.config.read_text())
     if a.arch:
         cfg["arch"] = a.arch
+    run_name = a.run_name or f"{cfg['arch']}-{time.strftime('%Y%m%d-%H%M%S')}"
+    tb = SummaryWriter(a.logdir / run_name)
+    tb.add_text("config", "    " + yaml.safe_dump(cfg).replace("\n", "\n    "))
+    print("tensorboard run:", a.logdir / run_name)
     root = Path(cfg["root"])
     torch.manual_seed(cfg["seed"])
     device = torch_device(cfg.get("device", "auto"))
@@ -202,6 +221,12 @@ def main() -> None:
         f1 = float(np.mean([m["f1"] for m in val["event"].values()])) if val["event"] else 0.0
         terms = "  ".join(f"{k} {v / n:.4f}" for k, v in sums.items())
         print(f"epoch {epoch + 1}/{cfg['epochs']}  {terms}  beta {beta:.3f}  val event F1 {f1:.3f}")
+        for k, v in sums.items():
+            tb.add_scalar(f"train/{k}", v / n, epoch + 1)
+        tb.add_scalar("train/beta", beta, epoch + 1)
+        tb.add_scalar("val/event_f1_mean", f1, epoch + 1)
+        log_eval(tb, "val", val, epoch + 1)
+        tb.flush()
         if f1 > best:  # keep the best validation checkpoint
             best = f1
             torch.save(
@@ -226,6 +251,8 @@ def main() -> None:
     }
     a.report.write_text(json.dumps(report, indent=1))
     print(json.dumps(report["test"]["event"], indent=1))
+    log_eval(tb, "test", report["test"], cfg["epochs"])
+    tb.close()
 
 
 if __name__ == "__main__":

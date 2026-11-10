@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-train = ["torch>=2.2", "onnx>=1.16", "pandas>=2.2", "matplotlib>=3.8"]
+train = ["torch>=2.2", "onnx>=1.16", "pandas>=2.2", "matplotlib>=3.8", "tensorboard>=2.16"]
 serve = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "onnxruntime>=1.17", "python-multipart>=0.0.9"]
 # video preprocessing (torch backend); TVL1 needs the contrib build of OpenCV
 extract = ["torch>=2.2", "torchvision>=0.17", "opencv-contrib-python-headless>=4.8", "scenedetect>=0.6.4"]

@@ -10,3 +10,5 @@ detection/results.json
 detection/results_*.json
 graphify-out/
 .ipynb_checkpoints/
+runs/
+figures/

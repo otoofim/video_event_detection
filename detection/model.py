@@ -90,14 +90,18 @@ class VariationalUNet(nn.Module):
         levels: int = 2,
         dropout: float = 0.1,
         variational: bool = True,
+        in_dropout: float | None = None,
+        noise_std: float = 0.0,
     ):
         super().__init__()
         self.levels, self.latent, self.variational = levels, latent, variational
+        self.noise_std = noise_std
         self.factor = 2**levels
         self.register_buffer("mean", torch.zeros(1, in_dim, 1))
         self.register_buffer("std", torch.ones(1, in_dim, 1))
         chs = [hidden * 2**i for i in range(levels + 1)]
-        self.inp = nn.Sequential(nn.Dropout(dropout), nn.Conv1d(in_dim, hidden, 1), nn.ReLU())
+        in_drop = dropout if in_dropout is None else in_dropout
+        self.inp = nn.Sequential(nn.Dropout(in_drop), nn.Conv1d(in_dim, hidden, 1), nn.ReLU())
         self.enc = nn.ModuleList(_ConvBlock(chs[i], dropout) for i in range(levels))
         self.down = nn.ModuleList(
             nn.Conv1d(chs[i], chs[i + 1], 3, stride=2, padding=1) for i in range(levels)
@@ -138,7 +142,10 @@ class VariationalUNet(nn.Module):
 
     def forward(self, x: torch.Tensor, noise: torch.Tensor | None = None) -> dict:
         target = (x - self.mean) / self.std
-        h = self.inp(target)
+        noisy = target
+        if self.training and self.noise_std > 0:
+            noisy = target + torch.randn_like(target) * self.noise_std
+        h = self.inp(noisy)
         skips = []
         for blk, down in zip(self.enc, self.down, strict=True):
             h = blk(h)
@@ -241,7 +248,7 @@ def build_model(arch: str, in_dim: int, n_classes: int = len(CLASSES), **kw) -> 
     if arch == "dilated":
         return FeatureEventNet(in_dim, n_classes, kw.get("hidden", 256), kw.get("dropout", 0.3))
     if arch in ("vunet", "unet"):
-        keys = ("hidden", "latent", "levels", "dropout")
+        keys = ("hidden", "latent", "levels", "dropout", "in_dropout", "noise_std")
         return VariationalUNet(
             in_dim, n_classes, variational=arch == "vunet", **{k: kw[k] for k in keys if k in kw}
         )
