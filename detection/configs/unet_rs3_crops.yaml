@@ -37,3 +37,4 @@ crop:
   min_len: 40
   max_len: 100
   event_p: 0.7
+bg_keep: 1.0            # full background (before the downsampling default)

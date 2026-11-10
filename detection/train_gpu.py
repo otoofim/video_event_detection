@@ -76,7 +76,8 @@ def main() -> None:
     model = build_model(cfg["arch"], train.dim, **kwargs).to(device)
     model.mean.copy_(feats.mean(0).view(1, -1, 1))
     model.std.copy_(feats.std(0).clamp(min=1e-3).view(1, -1, 1))
-    power = cfg.get("class_weight_power", 0.5)
+    bg_keep = cfg.get("bg_keep", "balance")
+    power = cfg.get("class_weight_power", 0.0 if bg_keep == "balance" else 0.5)
     weight = (counts.sum() / (len(counts) * counts)).pow(power)
     print(
         "train step share "
@@ -100,7 +101,6 @@ def main() -> None:
 
     select = cfg.get("select_metric", "event_f1")
     crop = cfg.get("crop")
-    bg_keep = cfg.get("bg_keep", 1.0)
     ev_over = cfg.get("event_clip_oversample", 1.0)
     ev_pos = [np.flatnonzero(y.cpu().numpy()) for y in train.y]
     has_event = torch.tensor([len(p) > 0 for p in ev_pos])

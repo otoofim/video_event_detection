@@ -33,3 +33,4 @@ aggregator:
 class_weight_power: 0.75
 select_metric: step_macro_f1
 label_offset_s: -9.0
+bg_keep: 1.0            # full background (before the downsampling default)

@@ -32,3 +32,4 @@ aggregator:
   min_conf: 0.5
 class_weight_power: 0.75
 select_metric: step_macro_f1
+bg_keep: 1.0            # full background (before the downsampling default)

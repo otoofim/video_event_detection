@@ -30,3 +30,4 @@ tolerance_s: 3.0
 aggregator:
   min_run: 2
   min_conf: 0.5
+bg_keep: 1.0            # full background (before the downsampling default)

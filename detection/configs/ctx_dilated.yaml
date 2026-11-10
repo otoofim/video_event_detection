@@ -36,3 +36,4 @@ aggregator:
 class_weight_power: 0.75
 select_metric: auroc
 label_offset_s: 6.0
+bg_keep: 1.0            # full background (before the downsampling default)

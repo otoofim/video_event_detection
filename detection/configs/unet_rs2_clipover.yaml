@@ -34,3 +34,4 @@ class_weight_power: 0.5
 select_metric: auroc
 label_offset_s: 6.0
 event_clip_oversample: 4.0
+bg_keep: 1.0            # full background (before the downsampling default)
