@@ -20,28 +20,30 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import yaml
+from torch.nn.utils.rnn import pad_sequence
 from torch.utils.tensorboard import SummaryWriter
 
 from common.device import torch_device
 from common.lolv2t import CLASSES
 from detection.gpu_data import EvalSet, GpuSplit
 from detection.model import IGNORE, build_model, vae_loss
-from detection.weight_search import evaluate
+from detection.weight_search import evaluate, rank_metrics
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=Path, required=True)
-    ap.add_argument("--arch", choices=["vunet", "unet", "dilated"])
+    ap.add_argument("--arch", choices=["vunet", "unet", "dilated", "bigru"])
     ap.add_argument("--run-name", required=True)
     ap.add_argument("--out", type=Path)
     ap.add_argument("--report", type=Path)
     ap.add_argument("--logdir", type=Path, default=Path("runs"))
     ap.add_argument("--monitor-clips", type=int, default=500)
-    ap.add_argument("--conf-grid", type=float, nargs="+", default=[0.2, 0.3, 0.4, 0.5])
+    ap.add_argument("--conf-grid", type=float, nargs="+", default=[0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
     ap.add_argument("--patience", type=int, default=3)
     ap.add_argument("--max-ce-gap", type=float, default=0.10, help="val CE minus train CE")
     ap.add_argument("--max-f1-gap", type=float, default=0.10, help="train F1 minus val F1")
+    ap.add_argument("--max-auroc-gap", type=float, default=0.10, help="train AUROC minus val AUROC")
     ap.add_argument("--test", action="store_true", help="also score test (final config only)")
     a = ap.parse_args()
 
@@ -69,13 +71,22 @@ def main() -> None:
 
     n_norm = min(cfg["norm_clips"], len(train))
     feats = torch.cat([train.clip(i).float() for i in range(n_norm)])
-    labels = torch.cat([train.y[i] for i in range(n_norm)])
-    counts = torch.bincount(labels, minlength=len(CLASSES)).clamp(min=1).float()
+    counts = torch.bincount(torch.cat(train.y), minlength=len(CLASSES)).clamp(min=1).float()
     kwargs = dict(cfg["model"][cfg["arch"]])
     model = build_model(cfg["arch"], train.dim, **kwargs).to(device)
     model.mean.copy_(feats.mean(0).view(1, -1, 1))
     model.std.copy_(feats.std(0).clamp(min=1e-3).view(1, -1, 1))
-    weight = (counts.sum() / (len(counts) * counts)).sqrt()
+    power = cfg.get("class_weight_power", 0.5)
+    weight = (counts.sum() / (len(counts) * counts)).pow(power)
+    print(
+        "train step share "
+        + " ".join(
+            f"{c} {n / counts.sum():.3f}" for c, n in zip(CLASSES, counts.tolist(), strict=True)
+        )
+        + f" | class weights (power {power}) "
+        + " ".join(f"{c} {w:.2f}" for c, w in zip(CLASSES, weight.tolist(), strict=True)),
+        flush=True,
+    )
     del feats
     n_params = sum(p.numel() for p in model.parameters())
     print(f"{cfg['arch']} {kwargs} {n_params:,} parameters", flush=True)
@@ -86,6 +97,44 @@ def main() -> None:
     smooth = cfg.get("label_smoothing", 0.0)
     clip = cfg.get("grad_clip", 1.0)
     warmup = cfg["beta_warmup_epochs"] * math.ceil(len(train) / bs)
+
+    select = cfg.get("select_metric", "event_f1")
+    crop = cfg.get("crop")
+    bg_keep = cfg.get("bg_keep", 1.0)
+    ev_over = cfg.get("event_clip_oversample", 1.0)
+    ev_pos = [np.flatnonzero(y.cpu().numpy()) for y in train.y]
+    has_event = torch.tensor([len(p) > 0 for p in ev_pos])
+    clip_p = 1.0 + (ev_over - 1.0) * has_event.float()
+    print(
+        f"sampling: crop {crop} bg_keep {bg_keep} event-clip oversample {ev_over} "
+        f"({int(has_event.sum())}/{len(train)} clips have events)",
+        flush=True,
+    )
+
+    def make_batch(idx: list[int]):
+        xs, ys = [], []
+        for i in idx:
+            x, y = train.clip(i), train.y[i]
+            if crop and len(y) > crop["min_len"]:
+                n = int(rng.integers(crop["min_len"], crop["max_len"] + 1))
+                if len(y) > n:
+                    if len(ev_pos[i]) and rng.random() < crop["event_p"]:
+                        e = int(ev_pos[i][rng.integers(len(ev_pos[i]))])
+                        st = int(rng.integers(max(0, e - n + 1), min(e, len(y) - n) + 1))
+                    else:
+                        st = int(rng.integers(0, len(y) - n + 1))
+                    x, y = x[st : st + n], y[st : st + n]
+            xs.append(x)
+            ys.append(y)
+        x = pad_sequence(xs, batch_first=True).transpose(1, 2).float()
+        y = pad_sequence(ys, batch_first=True, padding_value=IGNORE)
+        if bg_keep == "balance":
+            n = torch.bincount(y[y != IGNORE], minlength=len(CLASSES)).float()
+            keep = min(1.0, max(0.05, float(n[1:].mean() / n[0]))) if n[0] > 0 else 1.0
+            y = y.masked_fill((y == 0) & (torch.rand(y.shape, device=y.device) > keep), IGNORE)
+        elif bg_keep < 1.0:
+            y = y.masked_fill((y == 0) & (torch.rand(y.shape, device=y.device) > bg_keep), IGNORE)
+        return x, y
 
     best_f1, bad, step = -1.0, 0, 0
     history = []
@@ -98,10 +147,15 @@ def main() -> None:
         for g in opt.param_groups:
             g["lr"] = lr
         model.train()
-        perm = torch.randperm(len(train)).tolist()
+        if ev_over != 1.0:
+            perm = torch.multinomial(clip_p, len(train), replacement=True).tolist()
+        else:
+            perm = torch.randperm(len(train)).tolist()
         loss_sum, seen = 0.0, 0
         for k in range(0, len(perm), bs):
-            x, y = train.batch(perm[k : k + bs])
+            x, y = make_batch(perm[k : k + bs])
+            if not (y != IGNORE).any():
+                continue
             opt.zero_grad()
             res = model(x)
             if isinstance(res, dict) and res["mu"] is not None:
@@ -122,6 +176,11 @@ def main() -> None:
         conf = max(by_conf, key=lambda c: by_conf[c]["mean_event_f1"])
         va = by_conf[conf]
         tr = evaluate(model, train_mon, {**agg, "min_conf": conf}, tol)
+        rk_tr, rk_va = rank_metrics(model, train_mon), rank_metrics(model, val_set)
+        score = {
+            "step_macro_f1": va["step"]["macro_f1"],
+            "auroc": rk_va["mean_auroc"],
+        }.get(select, va["mean_event_f1"])
         row = {
             "epoch": epoch + 1,
             "lr": lr,
@@ -133,6 +192,16 @@ def main() -> None:
             "train_f1": tr["mean_event_f1"],
             "val_f1": va["mean_event_f1"],
             "f1_gap": tr["mean_event_f1"] - va["mean_event_f1"],
+            "train_step_f1": tr["step"]["macro_f1"],
+            "val_step_f1": va["step"]["macro_f1"],
+            "train_step_recall": tr["step"]["macro_recall"],
+            "val_step_recall": va["step"]["macro_recall"],
+            "train_auroc": rk_tr["mean_auroc"],
+            "val_auroc": rk_va["mean_auroc"],
+            "auroc_gap": rk_tr["mean_auroc"] - rk_va["mean_auroc"],
+            "val_ap_lift": rk_va["mean_ap"] / rk_va["mean_base_rate"],
+            "train_step_precision": tr["step"]["macro_precision"],
+            "val_step_precision": va["step"]["macro_precision"],
         }
         history.append(row)
         for key, v in row.items():
@@ -143,11 +212,15 @@ def main() -> None:
             f"epoch {epoch + 1:3d}/{epochs}  loss {row['train_loss']:.3f}  "
             f"CE train {tr['ce']:.3f} val {va['ce']:.3f} gap {row['ce_gap']:+.3f}  "
             f"F1 train {tr['mean_event_f1']:.3f} val {va['mean_event_f1']:.3f} "
-            f"gap {row['f1_gap']:+.3f}  conf {conf:.1f}  ({(time.time() - t0) / 60:.1f} min)",
+            f"gap {row['f1_gap']:+.3f} | step macro F1 train {row['train_step_f1']:.3f} "
+            f"val {row['val_step_f1']:.3f} R val {row['val_step_recall']:.3f} "
+            f"P val {row['val_step_precision']:.3f} | AUROC train {row['train_auroc']:.3f} "
+            f"val {row['val_auroc']:.3f} gap {row['auroc_gap']:+.3f}  conf {conf:.1f}  "
+            f"({(time.time() - t0) / 60:.1f} min)",
             flush=True,
         )
-        if va["mean_event_f1"] > best_f1:
-            best_f1 = va["mean_event_f1"]
+        if score > best_f1:
+            best_f1 = score
             torch.save(
                 {
                     "state_dict": model.state_dict(),
@@ -160,12 +233,17 @@ def main() -> None:
                 },
                 out,
             )
-        if row["ce_gap"] > a.max_ce_gap or row["f1_gap"] > a.max_f1_gap:
+        if (
+            row["ce_gap"] > a.max_ce_gap
+            or row["f1_gap"] > a.max_f1_gap
+            or row["auroc_gap"] > a.max_auroc_gap
+        ):
             bad += 1
             if bad >= a.patience:
                 stop_reason = (
                     f"DIVERGENCE at epoch {epoch + 1}: CE gap {row['ce_gap']:+.3f} "
-                    f"(limit {a.max_ce_gap}), F1 gap {row['f1_gap']:+.3f} (limit {a.max_f1_gap}) "
+                    f"(limit {a.max_ce_gap}), F1 gap {row['f1_gap']:+.3f} (limit {a.max_f1_gap}), "
+                    f"AUROC gap {row['auroc_gap']:+.3f} (limit {a.max_auroc_gap}) "
                     f"for {bad} epochs in a row"
                 )
                 break
@@ -182,15 +260,20 @@ def main() -> None:
         "config": cfg,
         "stop_reason": stop_reason,
         "history": history,
-        "best_val_f1": best_f1,
-        "val": evaluate(model, val_set, agg, tol),
+        "select_metric": select,
+        "best_val_score": best_f1,
+        "val": {**evaluate(model, val_set, agg, tol), "rank": rank_metrics(model, val_set)},
     }
     if a.test:
         test = GpuSplit(root, "test", cfg, device)
-        report["test"] = evaluate(model, EvalSet(test, range(len(test))), agg, tol)
+        test_set = EvalSet(test, range(len(test)))
+        report["test"] = {
+            **evaluate(model, test_set, agg, tol),
+            "rank": rank_metrics(model, test_set),
+        }
         print("test event F1:", round(report["test"]["mean_event_f1"], 4), flush=True)
     report_path.write_text(json.dumps(report, indent=1))
-    print(f"best val F1 {best_f1:.4f}  checkpoint {out}  report {report_path}", flush=True)
+    print(f"best val {select} {best_f1:.4f}  checkpoint {out}  report {report_path}", flush=True)
     tb.close()
 
 
