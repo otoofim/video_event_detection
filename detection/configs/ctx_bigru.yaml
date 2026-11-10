@@ -1,0 +1,32 @@
+# +6 s labels, class weights 0.75, same regularisation as rs0_control; wider temporal context: ctx_bigru
+root: data/lolv2t
+use_flow: true
+arch: bigru
+model:
+  bigru:
+    hidden: 64
+    layers: 2
+    dropout: 0.2
+    in_dropout: 0.5
+    noise_std: 0.3
+lam: 1.0
+beta: 0.1
+beta_warmup_epochs: 5
+epochs: 40
+batch_size: 16
+lr: 0.001
+lr_min_frac: 0.05
+weight_decay: 0.05
+label_smoothing: 0.05
+grad_clip: 1.0
+seed: 0
+device: auto
+norm_clips: 300
+label_span_s: 3.0
+tolerance_s: 3.0
+aggregator:
+  min_run: 2
+  min_conf: 0.5
+class_weight_power: 0.75
+select_metric: auroc
+label_offset_s: 6.0
