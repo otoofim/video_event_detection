@@ -69,16 +69,17 @@ class GpuSplit:
         self.mm = np.memmap(bin_path, dtype=np.float16, mode="r").reshape(-1, self.dim)
         self.device = device
         ann = load_annotations(root, split)
+        offset = cfg.get("label_offset_s", 0.0)
         self.y, self.times, self.gt = [], [], []
         for cid, n in zip(self.ids, self.lens, strict=True):
             a = ann[cid]
             ev = weak_events(a)
-            y = step_labels(ev, int(n), a["duration"], cfg["label_span_s"])
+            y = step_labels(ev, int(n), a["duration"], cfg["label_span_s"], offset)
             self.y.append(torch.from_numpy(y).to(device))
             self.times.append(step_times(int(n), a["duration"]))
             g: dict[int, list[float]] = {k: [] for k in range(1, NC)}
             for e in ev:
-                g[CLASSES.index(e.event_type)].append(e.timestamp)
+                g[CLASSES.index(e.event_type)].append(round(e.timestamp + offset, 3))
             self.gt.append({k: sorted(v) for k, v in g.items()})
         self.x = None
         if resident:

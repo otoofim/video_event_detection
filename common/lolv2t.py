@@ -125,14 +125,19 @@ def step_times(n_steps: int, duration: float) -> np.ndarray:
 
 
 def step_labels(
-    events: list[Event], n_steps: int, duration: float, span_s: float = 3.0
+    events: list[Event],
+    n_steps: int,
+    duration: float,
+    span_s: float = 3.0,
+    offset_s: float = 0.0,
 ) -> np.ndarray:
-    """Per-step class index: an event labels the steps in ``[t, t + span_s)``."""
+    """Per-step class index: an event labels the steps in ``[t + offset_s, t + offset_s + span_s)``."""
     t = step_times(n_steps, duration)
     labels = np.zeros(n_steps, dtype=np.int64)
     # Apply lowest priority first so the earlier type in EVENT_TYPES (kill) wins overlaps.
     for e in sorted(events, key=lambda e: -EVENT_TYPES.index(e.event_type)):
-        labels[(t >= e.timestamp) & (t < e.timestamp + span_s)] = CLASSES.index(e.event_type)
+        start = e.timestamp + offset_s
+        labels[(t >= start) & (t < start + span_s)] = CLASSES.index(e.event_type)
     return labels
 
 
