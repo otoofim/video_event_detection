@@ -2,7 +2,7 @@
 
 PyTorch `state_dict` files (plain tensors, load with `torch.load(..., weights_only=True)`) plus the architecture, model arguments, feature statistics and the confidence threshold used during training. `manifest.json` lists the same information with each model's test metrics.
 
-Load and evaluate them with `visualisation/evaluate_models.ipynb`. All models take LoL-V2T features of shape `(N, 4096, T)` and return per-step logits for `background, kill, objective, teamfight`.
+Load and evaluate them with `visualisation/experiment_report.ipynb`. All models take LoL-V2T features of shape `(N, 4096, T)` and return per-step logits for `background, kill, objective, teamfight`.
 
 Test metrics below use the `min_conf` chosen on the validation set for each model. Models trained with different label windows (`Label offset`) are scored against their own labels, so only compare numbers within a group.
 
