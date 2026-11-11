@@ -122,6 +122,21 @@ class EvalSet:
         self.gt = {split.ids[i]: split.gt[i] for i in idx}
         self.n = len(idx)
 
+    def with_labels(self, split: GpuSplit) -> EvalSet:
+        """Same clips and device features, labels and event times taken from ``split``.
+
+        Use it to score models trained with different ``label_offset_s`` on one copy of the features.
+        """
+        index = {cid: i for i, cid in enumerate(split.ids)}
+        other = object.__new__(EvalSet)
+        other.groups = [
+            (ids, x, torch.stack([split.y[index[c]] for c in ids])) for ids, x, _ in self.groups
+        ]
+        other.times = {c: split.times[index[c]] for c in self.times}
+        other.gt = {c: split.gt[index[c]] for c in self.times}
+        other.n = self.n
+        return other
+
 
 def main() -> None:
     ap = argparse.ArgumentParser()
