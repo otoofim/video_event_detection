@@ -1,0 +1,778 @@
+[
+ {
+  "name": "detector",
+  "file": "checkpoints/detector.pt",
+  "description": "Variational U-Net (CE + reconstruction + KL), first trainer, early stopped",
+  "arch": "vunet",
+  "model_kwargs": {
+   "hidden": 64,
+   "latent": 32,
+   "levels": 2,
+   "dropout": 0.1
+  },
+  "parameters": 1645764,
+  "config": "detection/configs/default.yaml",
+  "label_offset_s": 0.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.5,
+  "test": {
+   "accuracy": 0.79,
+   "auroc": 0.5548,
+   "step_macro_f1": 0.2683,
+   "step_macro_recall": 0.2683,
+   "event_f1": 0.1233
+  }
+ },
+ {
+  "name": "detector_unet",
+  "file": "checkpoints/detector_unet.pt",
+  "description": "Plain U-Net, first trainer, epoch 30 of 100",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 64,
+   "levels": 2,
+   "dropout": 0.1
+  },
+  "parameters": 1149252,
+  "config": "detection/configs/default.yaml",
+  "label_offset_s": 0.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.5,
+  "test": {
+   "accuracy": 0.7013,
+   "auroc": 0.5633,
+   "step_macro_f1": 0.2629,
+   "step_macro_recall": 0.2792,
+   "event_f1": 0.1331
+  }
+ },
+ {
+  "name": "detector_unet_wsp",
+  "file": "checkpoints/detector_unet_wsp.pt",
+  "description": "detector_unet after gradient-free weight-space edits",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 64,
+   "levels": 2,
+   "dropout": 0.1
+  },
+  "parameters": 1149252,
+  "config": "detection/configs/default.yaml",
+  "label_offset_s": 0.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.5,
+  "test": {
+   "accuracy": 0.7541,
+   "auroc": 0.5628,
+   "step_macro_f1": 0.2675,
+   "step_macro_recall": 0.275,
+   "event_f1": 0.1278
+  }
+ },
+ {
+  "name": "base_c",
+  "file": "checkpoints/base_c.pt",
+  "description": "U-Net, GPU trainer, no extra regularisation",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 64,
+   "levels": 2,
+   "dropout": 0.1
+  },
+  "parameters": 1149252,
+  "config": "detection/configs/unet_base.yaml",
+  "label_offset_s": 0.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.5,
+  "test": {
+   "accuracy": 0.8082,
+   "auroc": 0.5905,
+   "step_macro_f1": 0.2744,
+   "step_macro_recall": 0.2764,
+   "event_f1": 0.1354
+  }
+ },
+ {
+  "name": "reg2_c",
+  "file": "checkpoints/reg2_c.pt",
+  "description": "U-Net, dropout 0.2, input dropout 0.3, noise 0.3, wd 0.01",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 64,
+   "levels": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.3,
+   "noise_std": 0.3
+  },
+  "parameters": 1149252,
+  "config": "detection/configs/unet_reg2.yaml",
+  "label_offset_s": 0.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.5,
+  "test": {
+   "accuracy": 0.8121,
+   "auroc": 0.6056,
+   "step_macro_f1": 0.2848,
+   "step_macro_recall": 0.2835,
+   "event_f1": 0.1355
+  }
+ },
+ {
+  "name": "reg3_c",
+  "file": "checkpoints/reg3_c.pt",
+  "description": "U-Net hidden 32, stronger regularisation",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 32,
+   "levels": 2,
+   "dropout": 0.3,
+   "in_dropout": 0.5,
+   "noise_std": 0.5
+  },
+  "parameters": 353444,
+  "config": "detection/configs/unet_reg3.yaml",
+  "label_offset_s": 0.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.5,
+  "test": {
+   "accuracy": 0.8105,
+   "auroc": 0.5981,
+   "step_macro_f1": 0.2792,
+   "step_macro_recall": 0.2784,
+   "event_f1": 0.1344
+  }
+ },
+ {
+  "name": "reg4_c",
+  "file": "checkpoints/reg4_c.pt",
+  "description": "U-Net hidden 16, input dropout 0.5, wd 0.05",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 16,
+   "levels": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 121428,
+  "config": "detection/configs/unet_reg4.yaml",
+  "label_offset_s": 0.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.5,
+  "test": {
+   "accuracy": 0.8199,
+   "auroc": 0.6134,
+   "step_macro_f1": 0.2807,
+   "step_macro_recall": 0.2794,
+   "event_f1": 0.1288
+  }
+ },
+ {
+  "name": "reg5_c",
+  "file": "checkpoints/reg5_c.pt",
+  "description": "U-Net, input dropout 0.7",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 64,
+   "levels": 2,
+   "dropout": 0.3,
+   "in_dropout": 0.7,
+   "noise_std": 0.3
+  },
+  "parameters": 1149252,
+  "config": "detection/configs/unet_reg5.yaml",
+  "label_offset_s": 0.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.5,
+  "test": {
+   "accuracy": 0.8374,
+   "auroc": 0.6035,
+   "step_macro_f1": 0.2785,
+   "step_macro_recall": 0.2752,
+   "event_f1": 0.1154
+  }
+ },
+ {
+  "name": "wt075",
+  "file": "checkpoints/wt075.pt",
+  "description": "reg4 U-Net, class weight power 0.75",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 16,
+   "levels": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 121428,
+  "config": "detection/configs/unet_wt075.yaml",
+  "label_offset_s": 0.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.75,
+  "test": {
+   "accuracy": 0.6954,
+   "auroc": 0.6087,
+   "step_macro_f1": 0.2841,
+   "step_macro_recall": 0.3118,
+   "event_f1": 0.1583
+  }
+ },
+ {
+  "name": "wt100",
+  "file": "checkpoints/wt100.pt",
+  "description": "reg4 U-Net, class weight power 1.0",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 16,
+   "levels": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 121428,
+  "config": "detection/configs/unet_wt100.yaml",
+  "label_offset_s": 0.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 1.0,
+  "test": {
+   "accuracy": 0.2754,
+   "auroc": 0.5888,
+   "step_macro_f1": 0.1761,
+   "step_macro_recall": 0.3346,
+   "event_f1": 0.1551
+  }
+ },
+ {
+  "name": "wt125",
+  "file": "checkpoints/wt125.pt",
+  "description": "reg4 U-Net, class weight power 1.25",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 16,
+   "levels": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 121428,
+  "config": "detection/configs/unet_wt125.yaml",
+  "label_offset_s": 0.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 1.25,
+  "test": {
+   "accuracy": 0.0507,
+   "auroc": 0.5909,
+   "step_macro_f1": 0.0693,
+   "step_macro_recall": 0.3178,
+   "event_f1": 0.1553
+  }
+ },
+ {
+  "name": "wt100_h32",
+  "file": "checkpoints/wt100_h32.pt",
+  "description": "reg3 U-Net, class weight power 1.0",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 32,
+   "levels": 2,
+   "dropout": 0.3,
+   "in_dropout": 0.5,
+   "noise_std": 0.5
+  },
+  "parameters": 353444,
+  "config": "detection/configs/unet_wt100_h32.yaml",
+  "label_offset_s": 0.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 1.0,
+  "test": {
+   "accuracy": 0.068,
+   "auroc": 0.6027,
+   "step_macro_f1": 0.0786,
+   "step_macro_recall": 0.3051,
+   "event_f1": 0.1349
+  }
+ },
+ {
+  "name": "shift_m9",
+  "file": "checkpoints/shift_m9.pt",
+  "description": "wt075 setup, label window -9 s",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 16,
+   "levels": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 121428,
+  "config": "detection/configs/unet_shift_m9.yaml",
+  "label_offset_s": -9.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.75,
+  "test": {
+   "accuracy": 0.7687,
+   "auroc": 0.6035,
+   "step_macro_f1": 0.2761,
+   "step_macro_recall": 0.2992,
+   "event_f1": 0.1024
+  }
+ },
+ {
+  "name": "shift_m6",
+  "file": "checkpoints/shift_m6.pt",
+  "description": "wt075 setup, label window -6 s",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 16,
+   "levels": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 121428,
+  "config": "detection/configs/unet_shift_m6.yaml",
+  "label_offset_s": -6.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.75,
+  "test": {
+   "accuracy": 0.7486,
+   "auroc": 0.6153,
+   "step_macro_f1": 0.2829,
+   "step_macro_recall": 0.3126,
+   "event_f1": 0.1134
+  }
+ },
+ {
+  "name": "shift_m3",
+  "file": "checkpoints/shift_m3.pt",
+  "description": "wt075 setup, label window -3 s",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 16,
+   "levels": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 121428,
+  "config": "detection/configs/unet_shift_m3.yaml",
+  "label_offset_s": -3.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.75,
+  "test": {
+   "accuracy": 0.7617,
+   "auroc": 0.6113,
+   "step_macro_f1": 0.2801,
+   "step_macro_recall": 0.2955,
+   "event_f1": 0.121
+  }
+ },
+ {
+  "name": "shift0",
+  "file": "checkpoints/shift0.pt",
+  "description": "wt075 setup, label window 0 s",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 16,
+   "levels": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 121428,
+  "config": "detection/configs/unet_shift0.yaml",
+  "label_offset_s": 0.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.75,
+  "test": {
+   "accuracy": 0.738,
+   "auroc": 0.617,
+   "step_macro_f1": 0.2886,
+   "step_macro_recall": 0.3047,
+   "event_f1": 0.156
+  }
+ },
+ {
+  "name": "shift_p3",
+  "file": "checkpoints/shift_p3.pt",
+  "description": "wt075 setup, label window +3 s",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 16,
+   "levels": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 121428,
+  "config": "detection/configs/unet_shift_p3.yaml",
+  "label_offset_s": 3.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.75,
+  "test": {
+   "accuracy": 0.7233,
+   "auroc": 0.6334,
+   "step_macro_f1": 0.2815,
+   "step_macro_recall": 0.3049,
+   "event_f1": 0.1446
+  }
+ },
+ {
+  "name": "shift_p6",
+  "file": "checkpoints/shift_p6.pt",
+  "description": "wt075 setup, label window +6 s",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 16,
+   "levels": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 121428,
+  "config": "detection/configs/unet_shift_p6.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.75,
+  "test": {
+   "accuracy": 0.7523,
+   "auroc": 0.6538,
+   "step_macro_f1": 0.2825,
+   "step_macro_recall": 0.3033,
+   "event_f1": 0.136
+  }
+ },
+ {
+  "name": "shift_p9",
+  "file": "checkpoints/shift_p9.pt",
+  "description": "wt075 setup, label window +9 s",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 16,
+   "levels": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 121428,
+  "config": "detection/configs/unet_shift_p9.yaml",
+  "label_offset_s": 9.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.75,
+  "test": {
+   "accuracy": 0.7128,
+   "auroc": 0.6566,
+   "step_macro_f1": 0.2762,
+   "step_macro_recall": 0.3132,
+   "event_f1": 0.1355
+  }
+ },
+ {
+  "name": "rs0_control",
+  "file": "checkpoints/rs0_control.pt",
+  "description": "+6 s labels, class weights 0.75, AUROC-selected (control)",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 16,
+   "levels": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 121428,
+  "config": "detection/configs/unet_rs0_control.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.75,
+  "test": {
+   "accuracy": 0.7719,
+   "auroc": 0.6565,
+   "step_macro_f1": 0.2845,
+   "step_macro_recall": 0.3002,
+   "event_f1": 0.1333
+  }
+ },
+ {
+  "name": "rs5_balance_crops",
+  "file": "checkpoints/rs5_balance_crops.pt",
+  "description": "+6 s labels, background downsampling + event-centred crops",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 16,
+   "levels": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 121428,
+  "config": "detection/configs/unet_rs5_balance_crops.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": "balance",
+  "class_weight_power": 0.0,
+  "test": {
+   "accuracy": 0.3567,
+   "auroc": 0.6335,
+   "step_macro_f1": 0.1982,
+   "step_macro_recall": 0.3513,
+   "event_f1": 0.1259
+  }
+ },
+ {
+  "name": "ctx_unet_l3",
+  "file": "checkpoints/ctx_unet_l3.pt",
+  "description": "U-Net 3 levels (receptive field 99 steps)",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 16,
+   "levels": 3,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 294100,
+  "config": "detection/configs/ctx_unet_l3.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.75,
+  "test": {
+   "accuracy": 0.7328,
+   "auroc": 0.6778,
+   "step_macro_f1": 0.287,
+   "step_macro_recall": 0.3178,
+   "event_f1": 0.1453
+  }
+ },
+ {
+  "name": "ctx_unet_l4",
+  "file": "checkpoints/ctx_unet_l4.pt",
+  "description": "U-Net 4 levels (219 steps)",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 16,
+   "levels": 4,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 983508,
+  "config": "detection/configs/ctx_unet_l4.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.75,
+  "test": {
+   "accuracy": 0.6369,
+   "auroc": 0.6781,
+   "step_macro_f1": 0.2722,
+   "step_macro_recall": 0.334,
+   "event_f1": 0.1455
+  }
+ },
+ {
+  "name": "ctx_unet_l4_big",
+  "file": "checkpoints/ctx_unet_l4_big.pt",
+  "description": "U-Net 4 levels, hidden 32, 2 blocks per level (6.4M params)",
+  "arch": "unet",
+  "model_kwargs": {
+   "hidden": 32,
+   "levels": 4,
+   "blocks": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 6418212,
+  "config": "detection/configs/ctx_unet_l4_big.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.75,
+  "test": {
+   "accuracy": 0.7543,
+   "auroc": 0.6758,
+   "step_macro_f1": 0.2904,
+   "step_macro_recall": 0.3133,
+   "event_f1": 0.1412
+  }
+ },
+ {
+  "name": "ctx_dilated",
+  "file": "checkpoints/ctx_dilated.pt",
+  "description": "Dilated residual convolutions 1..32 (127 steps)",
+  "arch": "dilated",
+  "model_kwargs": {
+   "hidden": 64,
+   "dilations": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32
+   ],
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 336580,
+  "config": "detection/configs/ctx_dilated.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.75,
+  "test": {
+   "accuracy": 0.7282,
+   "auroc": 0.6754,
+   "step_macro_f1": 0.2893,
+   "step_macro_recall": 0.3244,
+   "event_f1": 0.1281
+  }
+ },
+ {
+  "name": "ctx_bigru",
+  "file": "checkpoints/ctx_bigru.pt",
+  "description": "BiGRU, 2 layers, hidden 64 (whole clip), class weights 0.75",
+  "arch": "bigru",
+  "model_kwargs": {
+   "hidden": 64,
+   "layers": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 387140,
+  "config": "detection/configs/ctx_bigru.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": 1.0,
+  "class_weight_power": 0.75,
+  "test": {
+   "accuracy": 0.7429,
+   "auroc": 0.6914,
+   "step_macro_f1": 0.3012,
+   "step_macro_recall": 0.3341,
+   "event_f1": 0.136
+  }
+ },
+ {
+  "name": "gru_reg0",
+  "file": "checkpoints/gru_reg0.pt",
+  "description": "BiGRU + background downsampling, dropout 0.2",
+  "arch": "bigru",
+  "model_kwargs": {
+   "hidden": 64,
+   "layers": 2,
+   "dropout": 0.2,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 387140,
+  "config": "detection/configs/gru_reg0.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": "balance",
+  "class_weight_power": 0.0,
+  "test": {
+   "accuracy": 0.5702,
+   "auroc": 0.6924,
+   "step_macro_f1": 0.2687,
+   "step_macro_recall": 0.3716,
+   "event_f1": 0.1367
+  }
+ },
+ {
+  "name": "gru_reg1",
+  "file": "checkpoints/gru_reg1.pt",
+  "description": "BiGRU hidden 32, more regularisation, background downsampling",
+  "arch": "bigru",
+  "model_kwargs": {
+   "hidden": 32,
+   "layers": 2,
+   "dropout": 0.3,
+   "in_dropout": 0.6,
+   "noise_std": 0.5
+  },
+  "parameters": 162852,
+  "config": "detection/configs/gru_reg1.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": "balance",
+  "class_weight_power": 0.0,
+  "test": {
+   "accuracy": 0.4526,
+   "auroc": 0.6881,
+   "step_macro_f1": 0.2378,
+   "step_macro_recall": 0.3841,
+   "event_f1": 0.1348
+  }
+ },
+ {
+  "name": "gru_reg2",
+  "file": "checkpoints/gru_reg2.pt",
+  "description": "BiGRU, dropout 0.4, lr 5e-4, background downsampling (best on val AUROC)",
+  "arch": "bigru",
+  "model_kwargs": {
+   "hidden": 64,
+   "layers": 2,
+   "dropout": 0.4,
+   "in_dropout": 0.6,
+   "noise_std": 0.5
+  },
+  "parameters": 387140,
+  "config": "detection/configs/gru_reg2.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": "balance",
+  "class_weight_power": 0.0,
+  "test": {
+   "accuracy": 0.6059,
+   "auroc": 0.6928,
+   "step_macro_f1": 0.2792,
+   "step_macro_recall": 0.3686,
+   "event_f1": 0.1376
+  }
+ },
+ {
+  "name": "gru_reg3",
+  "file": "checkpoints/gru_reg3.pt",
+  "description": "BiGRU hidden 32, 1 layer, input dropout 0.7",
+  "arch": "bigru",
+  "model_kwargs": {
+   "hidden": 32,
+   "layers": 1,
+   "dropout": 0.3,
+   "in_dropout": 0.7,
+   "noise_std": 0.5
+  },
+  "parameters": 144036,
+  "config": "detection/configs/gru_reg3.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": "balance",
+  "class_weight_power": 0.0,
+  "test": {
+   "accuracy": 0.3605,
+   "auroc": 0.6535,
+   "step_macro_f1": 0.207,
+   "step_macro_recall": 0.3799,
+   "event_f1": 0.1271
+  }
+ },
+ {
+  "name": "gru_reg4",
+  "file": "checkpoints/gru_reg4.pt",
+  "description": "BiGRU, strongest regularisation, lr 3e-4",
+  "arch": "bigru",
+  "model_kwargs": {
+   "hidden": 64,
+   "layers": 2,
+   "dropout": 0.5,
+   "in_dropout": 0.7,
+   "noise_std": 0.7
+  },
+  "parameters": 387140,
+  "config": "detection/configs/gru_reg4.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": "balance",
+  "class_weight_power": 0.0,
+  "test": {
+   "accuracy": 0.4321,
+   "auroc": 0.6863,
+   "step_macro_f1": 0.2305,
+   "step_macro_recall": 0.3836,
+   "event_f1": 0.1399
+  }
+ }
+]
