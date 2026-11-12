@@ -41,6 +41,12 @@ def main() -> None:
     ap.add_argument("--monitor-clips", type=int, default=500)
     ap.add_argument("--conf-grid", type=float, nargs="+", default=[0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
     ap.add_argument("--patience", type=int, default=3)
+    ap.add_argument(
+        "--stall-patience",
+        type=int,
+        default=0,
+        help="stop after this many epochs without a new best (0 = off)",
+    )
     ap.add_argument("--max-ce-gap", type=float, default=0.10, help="val CE minus train CE")
     ap.add_argument("--max-f1-gap", type=float, default=0.10, help="train F1 minus val F1")
     ap.add_argument("--max-auroc-gap", type=float, default=0.10, help="train AUROC minus val AUROC")
@@ -142,7 +148,7 @@ def main() -> None:
             y = y.masked_fill((y == 0) & (torch.rand(y.shape, device=y.device) > bg_keep), IGNORE)
         return x, y
 
-    best_f1, bad, step, oom_skips = -1.0, 0, 0, 0
+    best_f1, best_epoch, bad, step, oom_skips = -1.0, 0, 0, 0, 0
     history = []
     out.parent.mkdir(parents=True, exist_ok=True)
     stop_reason = "finished all epochs"
@@ -248,7 +254,7 @@ def main() -> None:
             flush=True,
         )
         if score > best_f1:
-            best_f1 = score
+            best_f1, best_epoch = score, epoch + 1
             torch.save(
                 {
                     "state_dict": model.state_dict(),
@@ -277,6 +283,12 @@ def main() -> None:
                 break
         else:
             bad = 0
+        if a.stall_patience and epoch + 1 - best_epoch >= a.stall_patience:
+            stop_reason = (
+                f"STALL at epoch {epoch + 1}: no new best {select} for {a.stall_patience} epochs "
+                f"(best {best_f1:.4f} at epoch {best_epoch})"
+            )
+            break
     print(stop_reason, flush=True)
 
     ckpt = torch.load(out, map_location="cpu", weights_only=True)
