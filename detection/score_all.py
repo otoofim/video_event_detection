@@ -41,7 +41,14 @@ def main() -> None:
         cfg["tolerance_s"],
     )
     manifest = [m for m in json.loads(a.manifest.read_text()) if not a.only or m["name"] in a.only]
-    models, results = {}, {}
+    present = [m for m in manifest if Path(m["file"]).exists()]
+    for m in manifest:
+        if m not in present:
+            print(f"skipping {m['name']}: {m['file']} is not in this checkout", flush=True)
+    manifest = present
+    # with --only, keep the scores of the other checkpoints and add or replace these
+    results = json.loads(a.out.read_text()) if a.only and a.out.exists() else {}
+    models = {}
     for m in manifest:
         ck = torch.load(m["file"], map_location="cpu", weights_only=True)
         net = build_model(ck["arch"], ck["in_dim"], **ck["model_kwargs"])

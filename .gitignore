@@ -13,3 +13,5 @@ graphify-out/
 runs/
 figures/
 visualisation/output/
+# 116.6M-parameter transformer: about 470 MB, over the 100 MB limit of a normal GitHub push
+checkpoints/tf_max.pt
