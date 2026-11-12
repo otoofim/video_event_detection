@@ -33,7 +33,7 @@ from detection.weight_search import evaluate, rank_metrics
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=Path, required=True)
-    ap.add_argument("--arch", choices=["vunet", "unet", "dilated", "bigru"])
+    ap.add_argument("--arch", choices=["vunet", "unet", "dilated", "bigru", "transformer"])
     ap.add_argument("--run-name", required=True)
     ap.add_argument("--out", type=Path)
     ap.add_argument("--report", type=Path)
@@ -95,18 +95,21 @@ def main() -> None:
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
     epochs, bs = cfg["epochs"], cfg["batch_size"]
     min_frac = cfg.get("lr_min_frac", 1.0)
+    warm_epochs = cfg.get("lr_warmup_epochs", 0)
     smooth = cfg.get("label_smoothing", 0.0)
     clip = cfg.get("grad_clip", 1.0)
     warmup = cfg["beta_warmup_epochs"] * math.ceil(len(train) / bs)
 
     select = cfg.get("select_metric", "event_f1")
     crop = cfg.get("crop")
+    max_len = cfg.get("max_train_len")
+    bucket = cfg.get("bucket_by_length", False)
     ev_over = cfg.get("event_clip_oversample", 1.0)
     ev_pos = [np.flatnonzero(y.cpu().numpy()) for y in train.y]
     has_event = torch.tensor([len(p) > 0 for p in ev_pos])
     clip_p = 1.0 + (ev_over - 1.0) * has_event.float()
     print(
-        f"sampling: crop {crop} bg_keep {bg_keep} event-clip oversample {ev_over} "
+        f"sampling: crop {crop} max_train_len {max_len} bg_keep {bg_keep} event-clip oversample {ev_over} "
         f"({int(has_event.sum())}/{len(train)} clips have events)",
         flush=True,
     )
@@ -115,6 +118,9 @@ def main() -> None:
         xs, ys = [], []
         for i in idx:
             x, y = train.clip(i), train.y[i]
+            if max_len and len(y) > max_len:
+                st = int(rng.integers(0, len(y) - max_len + 1))
+                x, y = x[st : st + max_len], y[st : st + max_len]
             if crop and len(y) > crop["min_len"]:
                 n = int(rng.integers(crop["min_len"], crop["max_len"] + 1))
                 if len(y) > n:
@@ -136,7 +142,7 @@ def main() -> None:
             y = y.masked_fill((y == 0) & (torch.rand(y.shape, device=y.device) > bg_keep), IGNORE)
         return x, y
 
-    best_f1, bad, step = -1.0, 0, 0
+    best_f1, bad, step, oom_skips = -1.0, 0, 0, 0
     history = []
     out.parent.mkdir(parents=True, exist_ok=True)
     stop_reason = "finished all epochs"
@@ -144,6 +150,8 @@ def main() -> None:
         lr = cfg["lr"] * (
             min_frac + (1 - min_frac) * 0.5 * (1 + math.cos(math.pi * epoch / epochs))
         )
+        if warm_epochs:
+            lr *= min(1.0, (epoch + 1) / (warm_epochs + 1))
         for g in opt.param_groups:
             g["lr"] = lr
         model.train()
@@ -152,23 +160,43 @@ def main() -> None:
         else:
             perm = torch.randperm(len(train)).tolist()
         loss_sum, seen = 0.0, 0
-        for k in range(0, len(perm), bs):
-            x, y = make_batch(perm[k : k + bs])
+        batches = [perm[k : k + bs] for k in range(0, len(perm), bs)]
+        if bucket:
+            # batch clips of similar length together (less padding), then shuffle the batches
+            chunk, batches = bs * 50, []
+            for c in range(0, len(perm), chunk):
+                part = sorted(perm[c : c + chunk], key=lambda i: int(train.lens[i]))
+                batches += [part[k : k + bs] for k in range(0, len(part), bs)]
+            batches = [batches[i] for i in rng.permutation(len(batches))]
+        for idx in batches:
+            x, y = make_batch(idx)
             if not (y != IGNORE).any():
                 continue
-            opt.zero_grad()
-            res = model(x)
-            if isinstance(res, dict) and res["mu"] is not None:
-                beta = cfg["beta"] * min(1.0, step / warmup) if warmup else cfg["beta"]
-                loss, _ = vae_loss(res, y, weight, cfg["lam"], beta)
-            else:
-                logits = res["logits"] if isinstance(res, dict) else res
-                loss = F.cross_entropy(
-                    logits, y, weight=weight, ignore_index=IGNORE, label_smoothing=smooth
+            try:
+                opt.zero_grad()
+                res = model(x)
+                if isinstance(res, dict) and res["mu"] is not None:
+                    beta = cfg["beta"] * min(1.0, step / warmup) if warmup else cfg["beta"]
+                    loss, _ = vae_loss(res, y, weight, cfg["lam"], beta)
+                else:
+                    logits = res["logits"] if isinstance(res, dict) else res
+                    loss = F.cross_entropy(
+                        logits, y, weight=weight, ignore_index=IGNORE, label_smoothing=smooth
+                    )
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
+                opt.step()
+            except torch.cuda.OutOfMemoryError:
+                # a rare batch of very long clips can exceed memory on the largest models: skip it
+                res = logits = loss = None
+                opt.zero_grad(set_to_none=True)
+                torch.cuda.empty_cache()
+                oom_skips += 1
+                print(
+                    f"  skipped a batch ({x.shape[0]} x {x.shape[2]} steps): out of memory",
+                    flush=True,
                 )
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
-            opt.step()
+                continue
             step += 1
             loss_sum += float(loss.detach()) * len(x)
             seen += len(x)
@@ -261,6 +289,7 @@ def main() -> None:
         "stop_reason": stop_reason,
         "history": history,
         "select_metric": select,
+        "oom_skipped_batches": oom_skips,
         "best_val_score": best_f1,
         "val": {**evaluate(model, val_set, agg, tol), "rank": rank_metrics(model, val_set)},
     }
