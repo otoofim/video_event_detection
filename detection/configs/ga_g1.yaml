@@ -1,0 +1,37 @@
+# gru_reg2 (BiGRU) + 1 global self-attention layer(s) on top; same recipe, +6 s labels, background downsampling
+root: data/lolv2t
+use_flow: true
+arch: grattn
+model:
+  grattn:
+    hidden: 64
+    layers: 2
+    dropout: 0.4
+    in_dropout: 0.6
+    noise_std: 0.5
+    attn_layers: 1
+    heads: 4
+    window: 0
+lam: 1.0
+beta: 0.1
+beta_warmup_epochs: 5
+epochs: 30
+batch_size: 16
+lr: 0.0005
+lr_min_frac: 0.05
+weight_decay: 0.1
+label_smoothing: 0.1
+grad_clip: 1.0
+seed: 0
+device: auto
+norm_clips: 300
+label_span_s: 3.0
+tolerance_s: 3.0
+aggregator:
+  min_run: 2
+  min_conf: 0.5
+class_weight_power: 0.0
+select_metric: auroc
+label_offset_s: 6.0
+bg_keep: balance
+lr_warmup_epochs: 1
