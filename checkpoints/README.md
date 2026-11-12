@@ -2,9 +2,11 @@
 
 PyTorch `state_dict` files (plain tensors, load with `torch.load(..., weights_only=True)`) plus the architecture, model arguments, feature statistics and the confidence threshold used during training. `manifest.json` lists the same information with each model's test metrics.
 
-Load and evaluate them with `visualisation/experiment_report.ipynb`. All models take LoL-V2T features of shape `(N, 4096, T)` and return per-step logits for `background, kill, objective, teamfight`.
+The experiment report `visualisation/experiment_report.ipynb` loads and evaluates them. All models take LoL-V2T features of shape `(N, 4096, T)` and return per-step logits for `background, kill, objective, teamfight`.
 
-Test metrics below use the `min_conf` chosen on the validation set for each model. Models trained with different label windows (`Label offset`) are scored against their own labels, so only compare numbers within a group.
+Test metrics use the `min_conf` chosen on the validation set for each model. Models trained with different label windows (`Label offset`) are scored against their own labels, so only compare numbers within a group.
+
+**Not in git:** `tf_max.pt` and `tf_max_reg.pt` (466 MB each, over GitHub's 100 MB file limit) are listed in `.gitignore`. They are kept locally only; their scores are in `visualisation/results/scores.json`. Git LFS or a release asset would be the way to publish them.
 
 | Checkpoint | Arch | Params | Label offset (s) | Bg downsampling | Acc | AUROC | Step macro F1 | Event F1 | Description |
 |---|---|---|---|---|---|---|---|---|---|
@@ -39,5 +41,9 @@ Test metrics below use the `min_conf` chosen on the validation set for each mode
 | `gru_reg2.pt` | bigru | 387,140 | +6 | yes | 0.606 | 0.693 | 0.279 | 0.138 | BiGRU, dropout 0.4, lr 5e-4, background downsampling (best on val AUROC) |
 | `gru_reg3.pt` | bigru | 144,036 | +6 | yes | 0.360 | 0.653 | 0.207 | 0.127 | BiGRU hidden 32, 1 layer, input dropout 0.7 |
 | `gru_reg4.pt` | bigru | 387,140 | +6 | yes | 0.432 | 0.686 | 0.231 | 0.140 | BiGRU, strongest regularisation, lr 3e-4 |
+| `tf_s.pt` | transformer | 329,540 | +6 | yes | 0.553 | 0.618 | 0.248 | 0.103 | Transformer encoder, 2 layers, width 64 (0.33M params); short run stopped by the divergence rule at epoch 20 |
+| `tf_l.pt` | transformer | 5,788,932 | +6 | yes | 0.403 | 0.670 | 0.216 | 0.106 | Transformer encoder, 6 layers, width 256 (5.8M params); short run stopped by the divergence rule at epoch 15 |
+| `tf_max.pt` (local only) | transformer | 116,557,060 | +6 | yes | 0.633 | 0.677 | 0.254 | 0.093 | Transformer encoder, 16 layers, width 768, 12 heads (116.6M params), epoch-5 checkpoint of a run stopped at epoch 88; weights not in git (466 MB) |
+| `tf_max_reg.pt` (local only) | transformer | 116,557,060 | +6 | yes | 0.429 | 0.680 | 0.215 | 0.089 | Same 116.6M model with heavy regularisation (dropout 0.5, stochastic depth 0.3, lr 2e-5, wd 0.3), epoch-4 checkpoint; weights not in git (466 MB) |
 
-Left out on purpose: `reg1` to `reg6` (early runs whose monitor used a fixed confidence threshold), `rs1` to `rs4` (sweep entries stopped before finishing).
+Left out on purpose: `reg1` to `reg6` (early runs whose monitor used a fixed confidence threshold), `rs1` to `rs4` and `tf_m`, `tf_xl`, `tf_xxl` (sweep entries stopped before finishing).

@@ -774,5 +774,116 @@
    "step_macro_recall": 0.3836,
    "event_f1": 0.1399
   }
+ },
+ {
+  "name": "tf_s",
+  "file": "checkpoints/tf_s.pt",
+  "description": "Transformer encoder, 2 layers, width 64 (0.33M params); short run stopped by the divergence rule at epoch 20",
+  "arch": "transformer",
+  "model_kwargs": {
+   "d_model": 64,
+   "layers": 2,
+   "heads": 4,
+   "ff": 128,
+   "dropout": 0.3,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 329540,
+  "config": "detection/configs/tf_s.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": "balance",
+  "class_weight_power": 0.0,
+  "test": {
+   "accuracy": 0.553,
+   "auroc": 0.6176,
+   "step_macro_f1": 0.2482,
+   "step_macro_recall": 0.3327,
+   "event_f1": 0.103
+  }
+ },
+ {
+  "name": "tf_l",
+  "file": "checkpoints/tf_l.pt",
+  "description": "Transformer encoder, 6 layers, width 256 (5.8M params); short run stopped by the divergence rule at epoch 15",
+  "arch": "transformer",
+  "model_kwargs": {
+   "d_model": 256,
+   "layers": 6,
+   "heads": 8,
+   "ff": 1024,
+   "dropout": 0.3,
+   "in_dropout": 0.5,
+   "noise_std": 0.3
+  },
+  "parameters": 5788932,
+  "config": "detection/configs/tf_l.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": "balance",
+  "class_weight_power": 0.0,
+  "test": {
+   "accuracy": 0.4034,
+   "auroc": 0.6697,
+   "step_macro_f1": 0.2162,
+   "step_macro_recall": 0.3634,
+   "event_f1": 0.1062
+  }
+ },
+ {
+  "name": "tf_max",
+  "file": "checkpoints/tf_max.pt",
+  "description": "Transformer encoder, 16 layers, width 768, 12 heads (116.6M params), epoch-5 checkpoint of a run stopped at epoch 88; weights not in git (466 MB)",
+  "arch": "transformer",
+  "model_kwargs": {
+   "d_model": 768,
+   "layers": 16,
+   "heads": 12,
+   "ff": 3072,
+   "dropout": 0.3,
+   "in_dropout": 0.5,
+   "noise_std": 0.3,
+   "checkpoint": true
+  },
+  "parameters": 116557060,
+  "config": "detection/configs/tf_max.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": "balance",
+  "class_weight_power": 0.0,
+  "test": {
+   "accuracy": 0.6329,
+   "auroc": 0.677,
+   "step_macro_f1": 0.2535,
+   "step_macro_recall": 0.3322,
+   "event_f1": 0.093
+  }
+ },
+ {
+  "name": "tf_max_reg",
+  "file": "checkpoints/tf_max_reg.pt",
+  "description": "Same 116.6M model with heavy regularisation (dropout 0.5, stochastic depth 0.3, lr 2e-5, wd 0.3), epoch-4 checkpoint; weights not in git (466 MB)",
+  "arch": "transformer",
+  "model_kwargs": {
+   "d_model": 768,
+   "layers": 16,
+   "heads": 12,
+   "ff": 3072,
+   "dropout": 0.5,
+   "in_dropout": 0.7,
+   "noise_std": 0.5,
+   "checkpoint": true,
+   "drop_path": 0.3
+  },
+  "parameters": 116557060,
+  "config": "detection/configs/tf_max_reg.yaml",
+  "label_offset_s": 6.0,
+  "bg_keep": "balance",
+  "class_weight_power": 0.0,
+  "test": {
+   "accuracy": 0.4294,
+   "auroc": 0.6798,
+   "step_macro_f1": 0.2154,
+   "step_macro_recall": 0.3623,
+   "event_f1": 0.0892
+  }
  }
 ]
