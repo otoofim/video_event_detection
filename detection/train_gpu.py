@@ -26,14 +26,14 @@ from torch.utils.tensorboard import SummaryWriter
 from common.device import torch_device
 from common.lolv2t import CLASSES
 from detection.gpu_data import EvalSet, GpuSplit
-from detection.model import IGNORE, build_model, vae_loss
+from detection.model import ARCHS, IGNORE, build_model, vae_loss
 from detection.weight_search import evaluate, rank_metrics
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=Path, required=True)
-    ap.add_argument("--arch", choices=["vunet", "unet", "dilated", "bigru", "transformer"])
+    ap.add_argument("--arch", choices=sorted(ARCHS))
     ap.add_argument("--run-name", required=True)
     ap.add_argument("--out", type=Path)
     ap.add_argument("--report", type=Path)

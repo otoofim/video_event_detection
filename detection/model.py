@@ -109,6 +109,68 @@ class GRUEventNet(nn.Module):
         return self.out(self.drop(out).transpose(1, 2))
 
 
+class GRUAttnNet(nn.Module):
+    """``(N, D, T)`` features -> ``(N, C, T)`` logits: a BiGRU followed by self-attention blocks.
+
+    The attention blocks (pre-norm, residual) read the BiGRU outputs, so they can add long-range
+    links between steps on top of the recurrent features. ``window > 0`` limits each step to the
+    steps within ``window`` of it (local attention); 0 means the whole clip. Padded steps are
+    packed out of the GRU and masked out of the attention keys.
+    """
+
+    def __init__(
+        self,
+        in_dim: int,
+        n_classes: int = len(CLASSES),
+        hidden: int = 64,
+        layers: int = 2,
+        attn_layers: int = 1,
+        heads: int = 4,
+        ff: int | None = None,
+        window: int = 0,
+        dropout: float = 0.3,
+        in_dropout: float | None = None,
+        noise_std: float = 0.0,
+    ):
+        super().__init__()
+        d = 2 * hidden
+        self.noise_std, self.window = noise_std, window
+        self.register_buffer("mean", torch.zeros(1, in_dim, 1))
+        self.register_buffer("std", torch.ones(1, in_dim, 1))
+        in_drop = dropout if in_dropout is None else in_dropout
+        self.proj = nn.Sequential(nn.Dropout(in_drop), nn.Conv1d(in_dim, hidden, 1), nn.ReLU())
+        self.gru = nn.GRU(
+            hidden,
+            hidden,
+            num_layers=layers,
+            batch_first=True,
+            bidirectional=True,
+            dropout=dropout if layers > 1 else 0.0,
+        )
+        block = nn.TransformerEncoderLayer(
+            d, heads, ff or 2 * d, dropout, activation="gelu", batch_first=True, norm_first=True
+        )
+        self.attn = nn.TransformerEncoder(block, attn_layers, enable_nested_tensor=False)
+        self.norm = nn.LayerNorm(d)
+        self.out = nn.Conv1d(d, n_classes, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        pad = x.abs().sum(1) == 0
+        lengths = (~pad).sum(1).clamp(min=1).cpu()
+        h = (x - self.mean) / self.std
+        if self.training and self.noise_std > 0:
+            h = h + torch.randn_like(h) * self.noise_std
+        h = self.proj(h).transpose(1, 2)
+        packed = pack_padded_sequence(h, lengths, batch_first=True, enforce_sorted=False)
+        h, _ = pad_packed_sequence(self.gru(packed)[0], batch_first=True, total_length=x.shape[2])
+        band = None
+        if self.window > 0:
+            idx = torch.arange(x.shape[2], device=x.device)
+            band = (idx[None, :] - idx[:, None]).abs() > self.window
+        h = self.attn(h, mask=band, src_key_padding_mask=pad if bool(pad.any()) else None)
+        return self.out(self.norm(h).transpose(1, 2))
+
+
 class TransformerEventNet(nn.Module):
     """``(N, D, T)`` features -> ``(N, C, T)`` logits through a pre-norm transformer encoder.
 
@@ -372,7 +434,7 @@ def _logits(model: nn.Module, x: torch.Tensor, noise: torch.Tensor | None = None
     return out["logits"] if isinstance(out, dict) else out
 
 
-ARCHS = {"vunet", "unet", "dilated", "bigru", "transformer"}
+ARCHS = {"vunet", "unet", "dilated", "bigru", "transformer", "grattn"}
 
 
 def build_model(arch: str, in_dim: int, n_classes: int = len(CLASSES), **kw) -> nn.Module:
@@ -384,6 +446,19 @@ def build_model(arch: str, in_dim: int, n_classes: int = len(CLASSES), **kw) -> 
         if "dilations" in kw:
             opts["dilations"] = tuple(kw["dilations"])
         return FeatureEventNet(in_dim, n_classes, **opts)
+    if arch == "grattn":
+        keys = (
+            "hidden",
+            "layers",
+            "attn_layers",
+            "heads",
+            "ff",
+            "window",
+            "dropout",
+            "in_dropout",
+            "noise_std",
+        )
+        return GRUAttnNet(in_dim, n_classes, **{k: kw[k] for k in keys if k in kw})
     if arch == "transformer":
         keys = (
             "d_model",
