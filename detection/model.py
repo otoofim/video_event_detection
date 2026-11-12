@@ -130,10 +130,12 @@ class TransformerEventNet(nn.Module):
         noise_std: float = 0.0,
         max_len: int = 4096,
         checkpoint: bool = False,
+        drop_path: float = 0.0,
     ):
         super().__init__()
         self.noise_std = noise_std
         self.checkpoint = checkpoint
+        self.drop_path = drop_path
         self.register_buffer("mean", torch.zeros(1, in_dim, 1))
         self.register_buffer("std", torch.ones(1, in_dim, 1))
         in_drop = dropout if in_dropout is None else in_dropout
@@ -157,13 +159,20 @@ class TransformerEventNet(nn.Module):
             h = h + torch.randn_like(h) * self.noise_std
         h = self.proj(h).transpose(1, 2) + self.pe[: x.shape[2]]
         mask = pad if bool(pad.any()) else None
-        for layer in self.encoder.layers:
+        layers = self.encoder.layers
+        for i, layer in enumerate(layers):
             if self.checkpoint and self.training:
-                h = torch.utils.checkpoint.checkpoint(
+                out = torch.utils.checkpoint.checkpoint(
                     layer, h, src_key_padding_mask=mask, use_reentrant=False
                 )
             else:
-                h = layer(h, src_key_padding_mask=mask)
+                out = layer(h, src_key_padding_mask=mask)
+            p = self.drop_path * (i + 1) / len(layers)  # stochastic depth, rising with depth
+            if self.training and p > 0:
+                keep = (torch.rand(h.shape[0], 1, 1, device=h.device) >= p).to(h.dtype)
+                h = h + keep * (out - h) / (1 - p)
+            else:
+                h = out
         return self.out(self.norm(h).transpose(1, 2))
 
 
@@ -385,6 +394,7 @@ def build_model(arch: str, in_dim: int, n_classes: int = len(CLASSES), **kw) -> 
             "in_dropout",
             "noise_std",
             "checkpoint",
+            "drop_path",
         )
         return TransformerEventNet(in_dim, n_classes, **{k: kw[k] for k in keys if k in kw})
     if arch == "bigru":
