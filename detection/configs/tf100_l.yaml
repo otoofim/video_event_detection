@@ -1,0 +1,40 @@
+# Transformer size ladder at 100 epochs (tf100_l): same recipe as tf_max, smaller model (+6 s labels, background downsampling,
+# 384-step training windows, length bucketing, divergence stop off).
+root: data/lolv2t
+use_flow: true
+arch: transformer
+model:
+  transformer:
+    d_model: 256
+    layers: 6
+    heads: 8
+    ff: 1024
+    dropout: 0.3
+    in_dropout: 0.5
+    noise_std: 0.3
+    checkpoint: false
+lam: 1.0
+beta: 0.1
+beta_warmup_epochs: 5
+epochs: 100
+batch_size: 16
+lr: 0.0002
+lr_min_frac: 0.05
+weight_decay: 0.1
+label_smoothing: 0.05
+grad_clip: 1.0
+seed: 0
+device: auto
+norm_clips: 300
+label_span_s: 3.0
+tolerance_s: 3.0
+aggregator:
+  min_run: 2
+  min_conf: 0.5
+class_weight_power: 0.0
+select_metric: auroc
+label_offset_s: 6.0
+bg_keep: balance
+max_train_len: 384
+bucket_by_length: true
+lr_warmup_epochs: 5
