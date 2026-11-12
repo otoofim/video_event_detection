@@ -6,8 +6,11 @@ with variational=False are the ablations. build_model picks one by name.
 
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn.functional as F
+import torch.utils.checkpoint
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
@@ -104,6 +107,64 @@ class GRUEventNet(nn.Module):
         out, _ = self.gru(packed)
         out, _ = pad_packed_sequence(out, batch_first=True, total_length=h.shape[1])
         return self.out(self.drop(out).transpose(1, 2))
+
+
+class TransformerEventNet(nn.Module):
+    """``(N, D, T)`` features -> ``(N, C, T)`` logits through a pre-norm transformer encoder.
+
+    A 1x1 projection to ``d_model``, sinusoidal positions, ``layers`` self-attention blocks over the
+    whole clip, and a per-step classifier. Padded steps (all-zero raw features) are masked out of
+    the attention keys.
+    """
+
+    def __init__(
+        self,
+        in_dim: int,
+        n_classes: int = len(CLASSES),
+        d_model: int = 64,
+        layers: int = 2,
+        heads: int = 4,
+        ff: int = 128,
+        dropout: float = 0.2,
+        in_dropout: float | None = None,
+        noise_std: float = 0.0,
+        max_len: int = 4096,
+        checkpoint: bool = False,
+    ):
+        super().__init__()
+        self.noise_std = noise_std
+        self.checkpoint = checkpoint
+        self.register_buffer("mean", torch.zeros(1, in_dim, 1))
+        self.register_buffer("std", torch.ones(1, in_dim, 1))
+        in_drop = dropout if in_dropout is None else in_dropout
+        self.proj = nn.Sequential(nn.Dropout(in_drop), nn.Conv1d(in_dim, d_model, 1))
+        pos = torch.arange(max_len)[:, None]
+        div = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, d_model)
+        pe[:, 0::2], pe[:, 1::2] = torch.sin(pos * div), torch.cos(pos * div)[:, : d_model // 2]
+        self.register_buffer("pe", pe, persistent=False)
+        block = nn.TransformerEncoderLayer(
+            d_model, heads, ff, dropout, activation="gelu", batch_first=True, norm_first=True
+        )
+        self.encoder = nn.TransformerEncoder(block, layers, enable_nested_tensor=False)
+        self.norm = nn.LayerNorm(d_model)
+        self.out = nn.Conv1d(d_model, n_classes, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        pad = x.abs().sum(1) == 0
+        h = (x - self.mean) / self.std
+        if self.training and self.noise_std > 0:
+            h = h + torch.randn_like(h) * self.noise_std
+        h = self.proj(h).transpose(1, 2) + self.pe[: x.shape[2]]
+        mask = pad if bool(pad.any()) else None
+        for layer in self.encoder.layers:
+            if self.checkpoint and self.training:
+                h = torch.utils.checkpoint.checkpoint(
+                    layer, h, src_key_padding_mask=mask, use_reentrant=False
+                )
+            else:
+                h = layer(h, src_key_padding_mask=mask)
+        return self.out(self.norm(h).transpose(1, 2))
 
 
 # --- Variational U-Net ------------------------------------------------------------------------
@@ -302,7 +363,7 @@ def _logits(model: nn.Module, x: torch.Tensor, noise: torch.Tensor | None = None
     return out["logits"] if isinstance(out, dict) else out
 
 
-ARCHS = {"vunet", "unet", "dilated", "bigru"}
+ARCHS = {"vunet", "unet", "dilated", "bigru", "transformer"}
 
 
 def build_model(arch: str, in_dim: int, n_classes: int = len(CLASSES), **kw) -> nn.Module:
@@ -314,6 +375,18 @@ def build_model(arch: str, in_dim: int, n_classes: int = len(CLASSES), **kw) -> 
         if "dilations" in kw:
             opts["dilations"] = tuple(kw["dilations"])
         return FeatureEventNet(in_dim, n_classes, **opts)
+    if arch == "transformer":
+        keys = (
+            "d_model",
+            "layers",
+            "heads",
+            "ff",
+            "dropout",
+            "in_dropout",
+            "noise_std",
+            "checkpoint",
+        )
+        return TransformerEventNet(in_dim, n_classes, **{k: kw[k] for k in keys if k in kw})
     if arch == "bigru":
         keys = ("hidden", "layers", "dropout", "in_dropout", "noise_std")
         return GRUEventNet(in_dim, n_classes, **{k: kw[k] for k in keys if k in kw})
