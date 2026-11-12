@@ -1,0 +1,42 @@
+# tf_max with much heavier regularisation after tf_max overfit (train AUROC 0.98, val AUROC fell from 0.69 to 0.54):
+# dropout 0.3->0.5, input dropout 0.5->0.7, input noise 0.3->0.5, stochastic depth 0.3 (new), lr 5e-5->2e-5,
+# weight decay 0.1->0.3, label smoothing 0.05->0.1. Same 116.6M-parameter model, +6 s labels, background downsampling.
+root: data/lolv2t
+use_flow: true
+arch: transformer
+model:
+  transformer:
+    d_model: 768
+    layers: 16
+    heads: 12
+    ff: 3072
+    dropout: 0.5
+    in_dropout: 0.7
+    noise_std: 0.5
+    checkpoint: true
+    drop_path: 0.3
+lam: 1.0
+beta: 0.1
+beta_warmup_epochs: 5
+epochs: 100
+batch_size: 16
+lr: 2.0e-05
+lr_min_frac: 0.05
+weight_decay: 0.3
+label_smoothing: 0.1
+grad_clip: 1.0
+seed: 0
+device: auto
+norm_clips: 300
+label_span_s: 3.0
+tolerance_s: 3.0
+aggregator:
+  min_run: 2
+  min_conf: 0.5
+class_weight_power: 0.0
+select_metric: auroc
+label_offset_s: 6.0
+bg_keep: balance
+max_train_len: 384
+bucket_by_length: true
+lr_warmup_epochs: 5
